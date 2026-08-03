@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  wms:
+    image: python:3.11-slim
+    container_name: wms-app
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./:/app                        # 挂载应用代码
+      - wms_data:/app/data             # 持久化数据目录（可改为 NAS 共享路径）
+    environment:
+      - WMS_HOST=0.0.0.0              # 监听所有网卡（局域网可访问）
+      - WMS_PORT=8899                 # 服务端口（可改）
+      - WMS_DATA_DIR=/app/data        # 数据库存储目录（挂载到 NAS 卷）
+      - WMS_OPEN_BROWSER=0            # NAS 上不自动打开浏览器
+    ports:
+      - "8899:8899"                   # 宿主机端口:容器端口
+    command: >
+      bash -c "pip install -q fastapi uvicorn[standard] pydantic &&
+               python main.py"
+
+volumes:
+  wms_data:
+    driver: local

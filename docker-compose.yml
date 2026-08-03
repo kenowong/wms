@@ -1,0 +1,41 @@
+# ============================================================
+# 进销存管理系统 — Docker Compose 配置
+# 部署布局（应用与数据分离）：
+#   - 应用/配置：CACHEDEV1  /share/CACHEDEV1_DATA/container/wms/
+#       （本文件 docker-compose.yml 与 wms_app/ 都放在这里）
+#   - 数据库  ：CACHEDEV2  /share/CACHEDEV2_DATA/mydata/wms/
+#               容器内 /data 经 volumes 挂载到此（绝对路径，与项目目录解耦）
+# build.context 使用绝对路径指向 wms_app，因此无论用 SSH 还是
+# Container Station 界面粘贴本文件，都能正确找到源码构建镜像。
+# 路径前缀 CACHEDEV1_DATA / CACHEDEV2_DATA 以你 NAS 实际存储池为准
+# （File Station 右键文件夹 → 属性查看真实路径）。
+# ============================================================
+
+services:
+  wms:
+    image: wms-app:latest
+    build:
+      context: /share/CACHEDEV1_DATA/container/wms/wms_app
+      dockerfile: Dockerfile
+    container_name: wms-app
+    restart: unless-stopped
+
+    ports:
+      - "8899:8899"   # 左边=NAS 对外端口，右边=容器内端口
+
+    volumes:
+      # 数据库持久化：容器内 /data 挂载到 CACHEDEV2（数据盘）
+      - /share/CACHEDEV2_DATA/mydata/wms:/data
+
+    environment:
+      WMS_HOST: "0.0.0.0"     # 必须 0.0.0.0，否则容器外无法访问
+      WMS_PORT: "8899"
+      WMS_DATA_DIR: "/data"   # 数据库存放路径（已挂载到宿主机）
+      WMS_OPEN_BROWSER: "0"   # NAS 上不自动开浏览器
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8899/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

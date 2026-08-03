@@ -1,0 +1,722 @@
+# -*- coding: utf-8 -*-
+"""API路由 - 银行账户、收付款、对账"""
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import Optional
+from database import get_conn
+from period_guard import assert_dates_open
+from routers_auth import get_current_user
+import datetime
+
+router = APIRouter()
+
+
+# ══════════════════════════════════════════
+# 工具函数
+# ══════════════════════════════════════════
+def _gen_pay_no(conn, pay_type: int) -> str:
+    """生成收付款单号  SK-YYYYMMDD-NNNN / FK-YYYYMMDD-NNNN"""
+    prefix = "SK" if pay_type == 1 else "FK"
+    today = datetime.date.today().strftime('%Y%m%d')
+    pat = f"{prefix}-{today}-%"
+    row = conn.execute(
+        "SELECT pay_no FROM payments WHERE pay_no LIKE ? ORDER BY pay_no DESC LIMIT 1",
+        (pat,)).fetchone()
+    seq = 1
+    if row:
+        try:
+            seq = int(row[0].split('-')[-1]) + 1
+        except Exception:
+            pass
+    return f"{prefix}-{today}-{seq:04d}"
+
+
+def _gen_recon_no(conn) -> str:
+    """生成对账单号  RC-YYYYMMDD-NNNN"""
+    today = datetime.date.today().strftime('%Y%m%d')
+    pat = f"RC-{today}-%"
+    row = conn.execute(
+        "SELECT recon_no FROM reconciliations WHERE recon_no LIKE ? ORDER BY recon_no DESC LIMIT 1",
+        (pat,)).fetchone()
+    seq = 1
+    if row:
+        try:
+            seq = int(row[0].split('-')[-1]) + 1
+        except Exception:
+            pass
+    return f"RC-{today}-{seq:04d}"
+
+
+def _gen_bank_code(conn) -> str:
+    """生成银行账户编码  BA-NNNN"""
+    row = conn.execute(
+        "SELECT code FROM bank_accounts WHERE code LIKE 'BA-%' ORDER BY code DESC LIMIT 1"
+    ).fetchone()
+    seq = 1
+    if row:
+        try:
+            seq = int(row[0].split('-')[-1]) + 1
+        except Exception:
+            pass
+    return f"BA-{seq:04d}"
+
+
+# ══════════════════════════════════════════
+# 银行账户
+# ══════════════════════════════════════════
+@router.get("/bank_accounts")
+def list_bank_accounts():
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM bank_accounts ORDER BY sort_order, id"
+        if _has_col(conn, 'bank_accounts', 'sort_order') else
+        "SELECT * FROM bank_accounts ORDER BY id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _has_col(conn, tbl, col):
+    try:
+        info = conn.execute(f"PRAGMA table_info({tbl})").fetchall()
+        return any(r['name'] == col for r in info)
+    except Exception:
+        return False
+
+
+@router.post("/bank_accounts")
+def create_bank_account(data: dict):
+    conn = get_conn()
+    try:
+        code = (data.get('code') or '').strip() or _gen_bank_code(conn)
+        row = conn.execute(
+            """INSERT INTO bank_accounts(code,name,bank_name,account_no,currency,
+               opening_balance,balance,status,remark)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (code, data.get('name', ''), data.get('bank_name', ''),
+             data.get('account_no', ''), data.get('currency', 'CNY'),
+             data.get('opening_balance', 0), data.get('opening_balance', 0),
+             data.get('status', 1), data.get('remark', ''))
+        )
+        conn.commit()
+        return {"ok": True, "id": row.lastrowid, "code": code}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    finally:
+        conn.close()
+
+
+@router.put("/bank_accounts/{aid}")
+def update_bank_account(aid: int, data: dict):
+    conn = get_conn()
+    conn.execute(
+        """UPDATE bank_accounts SET name=?,bank_name=?,account_no=?,currency=?,
+           status=?,remark=? WHERE id=?""",
+        (data.get('name', ''), data.get('bank_name', ''), data.get('account_no', ''),
+         data.get('currency', 'CNY'), data.get('status', 1), data.get('remark', ''), aid)
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@router.delete("/bank_accounts/{aid}")
+def delete_bank_account(aid: int):
+    conn = get_conn()
+    cnt = conn.execute(
+        "SELECT count(*) FROM payments WHERE bank_account_id=?", (aid,)
+    ).fetchone()[0]
+    if cnt > 0:
+        conn.close()
+        raise HTTPException(400, f"该账户已有 {cnt} 笔收付款记录，无法删除")
+    conn.execute("DELETE FROM bank_accounts WHERE id=?", (aid,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# ══════════════════════════════════════════
+# 收付款
+# ══════════════════════════════════════════
+@router.get("/payments")
+def list_payments(
+    pay_type: int = -1,
+    partner_id: int = -1,
+    bank_account_id: int = -1,
+    date_from: str = "",
+    date_to: str = "",
+    keyword: str = ""
+):
+    conn = get_conn()
+    sql = """SELECT p.*,
+        pt.name as partner_name_ref,
+        ba.name as bank_account_name,
+        ba.account_no as bank_account_no
+        FROM payments p
+        LEFT JOIN partners pt ON p.partner_id=pt.id
+        LEFT JOIN bank_accounts ba ON p.bank_account_id=ba.id
+        WHERE p.status=1"""
+    params = []
+    if pay_type >= 0:
+        sql += " AND p.pay_type=?"; params.append(pay_type)
+    if partner_id >= 0:
+        sql += " AND p.partner_id=?"; params.append(partner_id)
+    if bank_account_id >= 0:
+        sql += " AND p.bank_account_id=?"; params.append(bank_account_id)
+    if date_from:
+        sql += " AND p.pay_date>=?"; params.append(date_from)
+    if date_to:
+        sql += " AND p.pay_date<=?"; params.append(date_to)
+    if keyword:
+        sql += " AND (p.pay_no LIKE ? OR p.partner_name LIKE ? OR p.remark LIKE ?)"
+        params += [f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"]
+    sql += " ORDER BY p.pay_date DESC, p.id DESC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@router.get("/payments/{pid}")
+def get_payment(pid: int):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "记录不存在")
+    pay = dict(row)
+    # 关联单据
+    rels = conn.execute(
+        "SELECT * FROM payment_relations WHERE payment_id=?", (pid,)
+    ).fetchall()
+    pay['relations'] = [dict(r) for r in rels]
+    conn.close()
+    return pay
+
+
+@router.post("/payments")
+def create_payment(data: dict):
+    conn = get_conn()
+    try:
+        pay_type = int(data.get('pay_type', 1))
+        pay_no = _gen_pay_no(conn, pay_type)
+        pay_date = data.get('pay_date', '') or datetime.date.today().isoformat()
+        assert_dates_open(conn, pay_date, label="收付款")
+        amount = float(data.get('amount', 0))
+        fee = float(data.get('fee', 0))
+        partner_id = int(data.get('partner_id', 0)) or None
+        bank_account_id = int(data.get('bank_account_id', 0)) or None
+        project_id = int(data.get('project_id', 0))
+
+        # 获取往来单位名称
+        partner_name = data.get('partner_name', '')
+        if partner_id and not partner_name:
+            pr = conn.execute("SELECT name FROM partners WHERE id=?", (partner_id,)).fetchone()
+            if pr:
+                partner_name = pr['name']
+
+        row = conn.execute(
+            """INSERT INTO payments(pay_no,pay_type,pay_date,partner_id,partner_name,
+               bank_account_id,amount,fee,project_id,remark,operator,status)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,1)""",
+            (pay_no, pay_type, pay_date, partner_id, partner_name,
+             bank_account_id, amount, fee, project_id,
+             data.get('remark', ''), data.get('operator', ''))
+        )
+        pay_id = row.lastrowid
+
+        # 关联单据核销
+        relations = data.get('relations', [])
+        for rel in relations:
+            wo = float(rel.get('write_off_amount', 0))
+            if wo <= 0:
+                continue
+            conn.execute(
+                """INSERT INTO payment_relations(payment_id,order_type,order_id,order_no,write_off_amount)
+                   VALUES(?,?,?,?,?)""",
+                (pay_id, rel.get('order_type', ''), rel.get('order_id', 0),
+                 rel.get('order_no', ''), wo)
+            )
+
+        # 更新银行账户余额
+        if bank_account_id:
+            if pay_type == 1:  # 收款 → 余额增加
+                conn.execute(
+                    "UPDATE bank_accounts SET balance=balance+? WHERE id=?",
+                    (amount - fee, bank_account_id)
+                )
+            else:  # 付款 → 余额减少
+                conn.execute(
+                    "UPDATE bank_accounts SET balance=balance-? WHERE id=?",
+                    (amount + fee, bank_account_id)
+                )
+
+        conn.commit()
+        return {"ok": True, "id": pay_id, "pay_no": pay_no}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    finally:
+        conn.close()
+
+
+def _payment_guard(conn, pid, allow):
+    row = conn.execute("SELECT audit_status FROM payments WHERE id=?", (pid,)).fetchone()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    if row['audit_status'] not in allow:
+        raise HTTPException(400, "该收付款已审核/已作废，不能修改。请先反审核或作废。")
+    return row
+
+@router.post("/payments/{pid}/approve")
+def approve_payment(pid: int):
+    conn = get_conn(); row = _payment_guard(conn, pid, (0,))
+    assert_dates_open(conn, row['pay_date'], label="收付款")
+    conn.execute("UPDATE payments SET audit_status=1 WHERE id=?", (pid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.post("/payments/{pid}/unapprove")
+def unapprove_payment(pid: int):
+    conn = get_conn(); row = _payment_guard(conn, pid, (1,))
+    assert_dates_open(conn, row['pay_date'], label="收付款")
+    conn.execute("UPDATE payments SET audit_status=0 WHERE id=?", (pid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.post("/payments/{pid}/void")
+def void_payment(pid: int):
+    """作废：回滚银行余额 + 标记已作废"""
+    conn = get_conn(); row = _payment_guard(conn, pid, (1,))
+    assert_dates_open(conn, row['pay_date'], label="收付款")
+    pay = conn.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
+    pay = dict(pay)
+    if pay.get('bank_account_id'):
+        if pay['pay_type'] == 1:
+            conn.execute("UPDATE bank_accounts SET balance=balance-? WHERE id=?",
+                         (pay['amount'] - pay['fee'], pay['bank_account_id']))
+        else:
+            conn.execute("UPDATE bank_accounts SET balance=balance+? WHERE id=?",
+                         (pay['amount'] + pay['fee'], pay['bank_account_id']))
+    conn.execute("UPDATE payments SET audit_status=2 WHERE id=?", (pid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.put("/payments/{pid}")
+def update_payment(pid: int, data: dict):
+    """仅允许修改备注、操作人、日期等非金额字段"""
+    conn = get_conn()
+    _payment_guard(conn, pid, (0,))
+    assert_dates_open(conn, data.get('pay_date', ''), label="收付款")
+    conn.execute(
+        "UPDATE payments SET pay_date=?,remark=?,operator=? WHERE id=?",
+        (data.get('pay_date', ''), data.get('remark', ''),
+         data.get('operator', ''), pid)
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@router.delete("/payments/{pid}")
+def cancel_payment(pid: int):
+    """撤销收付款（逻辑删除并回滚余额）——仅草稿可用"""
+    conn = get_conn()
+    pay = conn.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
+    if not pay:
+        conn.close()
+        raise HTTPException(404, "记录不存在")
+    if pay['audit_status'] >= 1:
+        conn.close()
+        raise HTTPException(400, "该收付款已审核/已作废，不能撤销。请先反审核。")
+    assert_dates_open(conn, pay['pay_date'], label="收付款")
+    pay = dict(pay)
+    # 回滚银行余额
+    if pay.get('bank_account_id'):
+        if pay['pay_type'] == 1:
+            conn.execute(
+                "UPDATE bank_accounts SET balance=balance-? WHERE id=?",
+                (pay['amount'] - pay['fee'], pay['bank_account_id'])
+            )
+        else:
+            conn.execute(
+                "UPDATE bank_accounts SET balance=balance+? WHERE id=?",
+                (pay['amount'] + pay['fee'], pay['bank_account_id'])
+            )
+    conn.execute("UPDATE payments SET status=0 WHERE id=?", (pid,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# ══════════════════════════════════════════
+# 对账
+# ══════════════════════════════════════════
+@router.get("/reconciliations")
+def list_reconciliations(partner_id: int = -1, recon_type: int = -1):
+    conn = get_conn()
+    sql = """SELECT r.*, pt.name as partner_name_ref
+        FROM reconciliations r
+        LEFT JOIN partners pt ON r.partner_id=pt.id
+        WHERE 1=1"""
+    params = []
+    if partner_id >= 0:
+        sql += " AND r.partner_id=?"; params.append(partner_id)
+    if recon_type >= 0:
+        sql += " AND r.recon_type=?"; params.append(recon_type)
+    sql += " ORDER BY r.id DESC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@router.post("/reconciliations/generate")
+def generate_reconciliation(data: dict):
+    """
+    自动生成对账单：
+    汇总期间内的采购/销售单金额，以及已收/付款金额，计算差额
+    recon_type=1 应收（销售）; recon_type=2 应付（采购）
+    """
+    conn = get_conn()
+    try:
+        partner_id = int(data.get('partner_id', 0))
+        recon_type = int(data.get('recon_type', 1))
+        period_start = data.get('period_start', '')
+        period_end = data.get('period_end', '')
+        if not partner_id:
+            raise HTTPException(400, "请选择往来单位")
+
+        # 查单据金额
+        if recon_type == 1:  # 应收 → 销售单
+            order_sql = """SELECT COALESCE(SUM(total_amount),0) FROM sale_orders
+                WHERE customer_id=? AND status>=2"""
+            paid_sql = """SELECT COALESCE(SUM(amount),0) FROM payments
+                WHERE partner_id=? AND pay_type=1 AND status=1"""
+        else:  # 应付 → 采购单
+            order_sql = """SELECT COALESCE(SUM(total_amount),0) FROM purchase_orders
+                WHERE supplier_id=? AND status>=2"""
+            paid_sql = """SELECT COALESCE(SUM(amount),0) FROM payments
+                WHERE partner_id=? AND pay_type=2 AND status=1"""
+
+        if period_start:
+            order_sql += " AND order_date>=?"
+            paid_sql += " AND pay_date>=?"
+        if period_end:
+            order_sql += " AND order_date<=?"
+            paid_sql += " AND pay_date<=?"
+
+        o_params = [partner_id] + ([period_start] if period_start else []) + ([period_end] if period_end else [])
+        p_params = [partner_id] + ([period_start] if period_start else []) + ([period_end] if period_end else [])
+
+        total_order = conn.execute(order_sql, o_params).fetchone()[0]
+        total_paid = conn.execute(paid_sql, p_params).fetchone()[0]
+        balance = total_order - total_paid
+
+        partner = conn.execute("SELECT name FROM partners WHERE id=?", (partner_id,)).fetchone()
+        partner_name = partner['name'] if partner else ''
+        recon_no = _gen_recon_no(conn)
+
+        row = conn.execute(
+            """INSERT INTO reconciliations(recon_no,partner_id,partner_name,recon_type,
+               period_start,period_end,total_order_amount,total_paid_amount,
+               balance_amount,status,operator)
+               VALUES(?,?,?,?,?,?,?,?,?,0,?)""",
+            (recon_no, partner_id, partner_name, recon_type,
+             period_start, period_end, total_order, total_paid, balance,
+             data.get('operator', ''))
+        )
+        conn.commit()
+        return {
+            "ok": True, "id": row.lastrowid, "recon_no": recon_no,
+            "total_order_amount": total_order,
+            "total_paid_amount": total_paid,
+            "balance_amount": balance
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    finally:
+        conn.close()
+
+
+def _recon_guard(conn, rid, allow):
+    row = conn.execute("SELECT audit_status FROM reconciliations WHERE id=?", (rid,)).fetchone()
+    if not row:
+        raise HTTPException(404, "对账单不存在")
+    if row['audit_status'] not in allow:
+        raise HTTPException(400, "该对账单已审核/已作废，不能修改。请先反审核或作废。")
+    return row
+
+@router.post("/reconciliations/{rid}/approve")
+def approve_reconciliation(rid: int):
+    conn = get_conn(); _recon_guard(conn, rid, (0,))
+    conn.execute("UPDATE reconciliations SET audit_status=1,status=1 WHERE id=?", (rid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.post("/reconciliations/{rid}/unapprove")
+def unapprove_reconciliation(rid: int):
+    conn = get_conn(); _recon_guard(conn, rid, (1,))
+    conn.execute("UPDATE reconciliations SET audit_status=0,status=0 WHERE id=?", (rid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.post("/reconciliations/{rid}/void")
+def void_reconciliation(rid: int):
+    conn = get_conn(); _recon_guard(conn, rid, (0, 1))
+    conn.execute("UPDATE reconciliations SET audit_status=2 WHERE id=?", (rid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.put("/reconciliations/{rid}/confirm")
+def confirm_reconciliation(rid: int, data: dict):
+    """确认/标记争议对账单"""
+    conn = get_conn()
+    _recon_guard(conn, rid, (0,))
+    status = int(data.get('status', 1))  # 1已确认 2有争议
+    conn.execute(
+        "UPDATE reconciliations SET status=?,remark=? WHERE id=?",
+        (status, data.get('remark', ''), rid)
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@router.delete("/reconciliations/{rid}")
+def delete_reconciliation(rid: int):
+    conn = get_conn()
+    _recon_guard(conn, rid, (0,))
+    conn.execute("DELETE FROM reconciliations WHERE id=?", (rid,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# ══════════════════════════════════════════
+# 收付款统计（用于工作台）
+# ══════════════════════════════════════════
+@router.get("/finance/summary")
+def finance_summary():
+    conn = get_conn()
+    today = datetime.date.today().isoformat()
+    month_start = today[:7] + "-01"
+    # 本月收款
+    recv = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM payments WHERE pay_type=1 AND status=1 AND pay_date>=? AND pay_date<=?",
+        (month_start, today)
+    ).fetchone()[0]
+    # 本月付款
+    paid = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM payments WHERE pay_type=2 AND status=1 AND pay_date>=? AND pay_date<=?",
+        (month_start, today)
+    ).fetchone()[0]
+    # 银行账户汇总余额
+    bank_balance = conn.execute(
+        "SELECT COALESCE(SUM(balance),0) FROM bank_accounts WHERE status=1"
+    ).fetchone()[0]
+    # 待收款（销售单已审核未完全收款）
+    ar = conn.execute(
+        """SELECT COALESCE(SUM(so.total_amount),0) - COALESCE(
+            (SELECT SUM(p.amount) FROM payments p WHERE p.pay_type=1 AND p.status=1),0)
+           FROM sale_orders so WHERE so.status>=2"""
+    ).fetchone()[0]
+    # 待付款（采购单已审核未完全付款）
+    ap = conn.execute(
+        """SELECT COALESCE(SUM(po.total_amount),0) - COALESCE(
+            (SELECT SUM(p.amount) FROM payments p WHERE p.pay_type=2 AND p.status=1),0)
+           FROM purchase_orders po WHERE po.status>=2"""
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "month_recv": recv,
+        "month_paid": paid,
+        "bank_balance": bank_balance,
+        "ar_balance": max(ar, 0),   # 应收余额
+        "ap_balance": max(ap, 0),   # 应付余额
+    }
+
+
+# ══════════════════════════════════════════
+# 费用单据
+# ══════════════════════════════════════════
+EXPENSE_CATEGORIES = ["办公费用", "财务费用", "差旅费", "招待费", "水电费", "房租",
+                      "工资薪金", "通讯费", "维修费", "运输费", "广告费", "其他"]
+
+
+def _gen_expense_no(conn) -> str:
+    """生成费用单号  FY-YYYYMMDD-NNNN"""
+    today = datetime.date.today().strftime('%Y%m%d')
+    pat = f"FY-{today}-%"
+    row = conn.execute(
+        "SELECT expense_no FROM expenses WHERE expense_no LIKE ? ORDER BY expense_no DESC LIMIT 1",
+        (pat,)).fetchone()
+    seq = 1
+    if row:
+        try:
+            seq = int(row[0].split('-')[-1]) + 1
+        except Exception:
+            pass
+    return f"FY-{today}-{seq:04d}"
+
+
+class ExpenseIn(BaseModel):
+    expense_date: Optional[str] = ""
+    category: Optional[str] = "办公费用"
+    amount: float = 0
+    pay_account_id: Optional[int] = 0
+    business_person: Optional[str] = ""
+    remark: Optional[str] = ""
+
+
+@router.get("/expense/categories")
+def expense_categories():
+    """费用类别列表"""
+    return EXPENSE_CATEGORIES
+
+
+@router.get("/expenses")
+def list_expenses(month: str = "", category: str = "", keyword: str = "",
+                 user: dict = Depends(get_current_user)):
+    """费用单据列表（可按月份/类别/关键字筛选）"""
+    conn = get_conn()
+    sql = """SELECT e.*, COALESCE(b.name,'') as pay_account_name
+        FROM expenses e LEFT JOIN bank_accounts b ON e.pay_account_id=b.id WHERE 1=1"""
+    params = []
+    if month:
+        sql += " AND strftime('%Y-%m', e.expense_date)=?"
+        params.append(month)
+    if category:
+        sql += " AND e.category=?"
+        params.append(category)
+    if keyword:
+        sql += " AND (e.expense_no LIKE ? OR e.remark LIKE ? OR e.business_person LIKE ?)"
+        params += [f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"]
+    sql += " ORDER BY e.expense_date DESC, e.id DESC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@router.post("/expenses")
+def create_expense(data: ExpenseIn, user: dict = Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        assert_dates_open(conn, data.expense_date, label="费用单据")
+        no = _gen_expense_no(conn)
+        conn.execute("""INSERT INTO expenses(expense_no,expense_date,category,amount,pay_account_id,remark,operator,business_person)
+            VALUES(?,?,?,?,?,?,?,?)""",
+            (no, data.expense_date, data.category, data.amount or 0, data.pay_account_id or 0,
+             data.remark or '', user['display_name'], data.business_person or ''))
+        conn.commit()
+        return {"ok": True, "expense_no": no}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/expenses/{eid}")
+def get_expense(eid: int, user: dict = Depends(get_current_user)):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT e.*, COALESCE(b.name,'') as pay_account_name FROM expenses e "
+        "LEFT JOIN bank_accounts b ON e.pay_account_id=b.id WHERE e.id=?",
+        (eid,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "费用单据不存在")
+    return dict(row)
+
+
+def _expense_guard(conn, eid, allow):
+    row = conn.execute("SELECT audit_status FROM expenses WHERE id=?", (eid,)).fetchone()
+    if not row:
+        raise HTTPException(404, "费用单据不存在")
+    if row['audit_status'] not in allow:
+        raise HTTPException(400, "该费用单已审核/已作废，不能修改。请先反审核或作废。")
+    return row
+
+@router.post("/expenses/{eid}/approve")
+def approve_expense(eid: int, user: dict = Depends(get_current_user)):
+    conn = get_conn(); row = _expense_guard(conn, eid, (0,))
+    assert_dates_open(conn, row['expense_date'], label="费用单据")
+    conn.execute("UPDATE expenses SET audit_status=1 WHERE id=?", (eid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.post("/expenses/{eid}/unapprove")
+def unapprove_expense(eid: int, user: dict = Depends(get_current_user)):
+    conn = get_conn(); row = _expense_guard(conn, eid, (1,))
+    assert_dates_open(conn, row['expense_date'], label="费用单据")
+    conn.execute("UPDATE expenses SET audit_status=0 WHERE id=?", (eid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.post("/expenses/{eid}/void")
+def void_expense(eid: int, user: dict = Depends(get_current_user)):
+    conn = get_conn(); row = _expense_guard(conn, eid, (0, 1))
+    assert_dates_open(conn, row['expense_date'], label="费用单据")
+    conn.execute("UPDATE expenses SET audit_status=2 WHERE id=?", (eid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.put("/expenses/{eid}")
+def update_expense(eid: int, data: ExpenseIn, user: dict = Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _expense_guard(conn, eid, (0,))
+        assert_dates_open(conn, data.expense_date, label="费用单据")
+        conn.execute("""UPDATE expenses SET expense_date=?,category=?,amount=?,pay_account_id=?,remark=?,business_person=?
+            WHERE id=?""",
+            (data.expense_date, data.category, data.amount or 0, data.pay_account_id or 0,
+             data.remark or '', data.business_person or '', eid))
+        conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    finally:
+        conn.close()
+
+
+@router.delete("/expenses/{eid}")
+def delete_expense(eid: int, user: dict = Depends(get_current_user)):
+    conn = get_conn()
+    _expense_guard(conn, eid, (0,))
+    row = conn.execute("SELECT expense_date FROM expenses WHERE id=?", (eid,)).fetchone()
+    if row:
+        assert_dates_open(conn, row['expense_date'], label="费用单据")
+    conn.execute("DELETE FROM expenses WHERE id=?", (eid,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@router.get("/expense/report")
+def expense_report(year: str = "", month: str = "", user: dict = Depends(get_current_user)):
+    """月度费用报表：含手动费用单据 + 入库单/出库单手续费"""
+    conn = get_conn()
+    today = datetime.date.today()
+    if not year:
+        year = today.strftime('%Y')
+    if not month:
+        month = today.strftime('%Y-%m')
+    # 全年逐月费用总额
+    months = []
+    for m in range(1, 13):
+        ym = f"{year}-{m:02d}"
+        exp = conn.execute("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE strftime('%Y-%m',expense_date)=?", (ym,)).fetchone()[0]
+        pf = conn.execute("SELECT COALESCE(SUM(fee),0) FROM purchase_orders WHERE strftime('%Y-%m',order_date)=?", (ym,)).fetchone()[0]
+        sf = conn.execute("SELECT COALESCE(SUM(fee),0) FROM sale_orders WHERE strftime('%Y-%m',order_date)=?", (ym,)).fetchone()[0]
+        months.append({"month": ym, "total": round(exp + pf + sf, 2)})
+    # 选中月份分类明细
+    cats = []
+    for r in conn.execute(
+        "SELECT category, COALESCE(SUM(amount),0) as amt FROM expenses "
+        "WHERE strftime('%Y-%m',expense_date)=? GROUP BY category ORDER BY amt DESC", (month,)).fetchall():
+        cats.append({"category": r['category'], "amount": round(r['amt'], 2)})
+    pf = conn.execute("SELECT COALESCE(SUM(fee),0) FROM purchase_orders WHERE strftime('%Y-%m',order_date)=? AND fee>0", (month,)).fetchone()[0]
+    sf = conn.execute("SELECT COALESCE(SUM(fee),0) FROM sale_orders WHERE strftime('%Y-%m',order_date)=? AND fee>0", (month,)).fetchone()[0]
+    if pf:
+        cats.append({"category": "采购手续费(入库单)", "amount": round(pf, 2)})
+    if sf:
+        cats.append({"category": "销售手续费(出库单)", "amount": round(sf, 2)})
+    total = round(sum(c['amount'] for c in cats), 2)
+    conn.close()
+    return {"year": year, "month": month, "months": months,
+            "categories": cats, "purchase_fee": round(pf, 2),
+            "sale_fee": round(sf, 2), "total": total}

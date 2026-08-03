@@ -1,0 +1,19 @@
+{
+  "name": "进销存管理系统",
+  "short_name": "进销存",
+  "description": "轻量化进销存管理：商品、采购、销售、库存、财务、发票、项目台账",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f6f8",
+  "theme_color": "#2f6fed",
+  "icons": [
+    {
+      "src": "/icon/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

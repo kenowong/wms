@@ -1,0 +1,54 @@
+# ===== 构建产物 / 打包二进制（体积大，不上传） =====
+tesseract/
+dist/
+build/
+*.exe
+
+# 顶层 installer 目录全是安装包 exe
+/installer/
+
+# wms_app 内部 installer 的 exe 与构建中间文件
+wms_app/installer/*.exe
+wms_app/installer/build/
+
+# 但保留安装/构建脚本源码
+!wms_app/installer.iss
+!wms_app/wms.spec
+!wms_app/进销存管理系统.spec
+!wms_app/installer/create_installer.py
+!wms_app/installer/install.bat
+!wms_app/installer/installer.sed
+!wms_app/installer/setup.iss
+
+# ===== 数据库与业务数据（含隐私，不上传） =====
+*.db
+*.sqlite
+*.sqlite3
+wms_data.db
+uploads/
+relative_path_xyz/
+
+# ===== 日志 =====
+*.log
+wms.log
+
+# ===== Python 缓存 / 虚拟环境 =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# ===== 前端依赖（Capacitor / Node） =====
+node_modules/
+wms_app/mobile/node_modules/
+wms_app/mobile/package-lock.json
+
+# ===== 系统 / 编辑器 =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ===== WorkBuddy 内部记忆（不上传） =====
+.workbuddy/

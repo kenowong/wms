@@ -1,0 +1,23 @@
+[Version]
+Class=IEXPRESS
+SEDVersion=3
+[Options]
+PackGoal=compress
+EmbedCab=yes
+[SourceFiles]
+SourceFiles0=.
+[SourceFiles0]
+进销存管理系统.exe=进销存管理系统.exe
+install.bat=install.bat
+[ExternalFiles]
+[Registry]
+[IniFile]
+[SelfExtract]
+Title=进销存管理系统 安装程序
+ShowLicense=
+ShowInstallMode=
+Description=进销存管理系统安装向导
+AllowLan=
+ShowSettings=
+FinishMessage=
+RunPostExtract=

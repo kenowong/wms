@@ -1,0 +1,3829 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>进销存管理系统</title>
+<meta name="theme-color" content="#2f6fed">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon/icon.svg">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Microsoft YaHei',sans-serif;background:#f0f2f5;color:#333;font-size:14px}
+:root{--primary:#1677ff;--success:#52c41a;--warning:#faad14;--danger:#ff4d4f;--border:#d9d9d9;--bg:#fff;--sidebar-w:220px}
+
+/* 布局 */
+#app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:var(--sidebar-w);background:linear-gradient(180deg,#001529,#002b4d);color:#fff;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.sidebar-logo{padding:20px 16px;font-size:16px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.1);display:flex;align-items:center;gap:8px}
+.sidebar-logo span{font-size:22px}
+.nav-group{padding:8px 0}
+.nav-title{padding:8px 16px;font-size:12px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:1px}
+.nav-item{padding:10px 16px 10px 32px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:.2s;font-size:13px;color:rgba(255,255,255,.75)}
+.nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav-item.active{background:var(--primary);color:#fff}
+.nav-item .icon{width:16px;text-align:center;flex-shrink:0}
+
+/* 菜单分组折叠（手风琴） */
+.nav-title{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between}
+.nav-title::after{content:'▾';font-size:10px;margin-left:auto;padding-left:8px;transition:transform .2s;opacity:.7}
+.nav-title:hover{color:rgba(255,255,255,.85)}
+.nav-group.collapsed .nav-title::after{transform:rotate(-90deg)}
+.nav-group.collapsed .nav-item{display:none}
+
+/* 项目流程状态色 & 甘特图 */
+.task-status-1{color:#8c8c8c}.task-status-2{color:#1677ff}.task-status-3{color:#52c41a}.task-status-4{color:#ff4d4f}
+.gantt{position:relative;font-size:12px;border:1px solid #eee;border-radius:6px;overflow:hidden;background:#fff}
+.gantt-head{display:flex;border-bottom:1px solid #eee;background:#fafafa}
+.gantt-head .gantt-label{font-weight:600}
+.gantt-row{display:flex;border-bottom:1px solid #f5f5f5}
+.gantt-row:last-child{border-bottom:none}
+.gantt-label{width:160px;flex:none;padding:6px 8px;border-right:1px solid #f0f0f0;background:#fafafa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gantt-track{position:relative;flex:1;min-height:30px}
+.gantt-month{position:absolute;top:0;height:26px;font-size:11px;color:#888;padding:4px 6px;border-right:1px solid #f0f0f0;white-space:nowrap;overflow:hidden}
+.gantt-bar{position:absolute;top:6px;height:18px;border-radius:4px;min-width:3px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.gantt-bar .gantt-progress{position:absolute;left:0;top:0;height:100%;background:rgba(255,255,255,.45)}
+.gantt-today{position:absolute;top:0;bottom:0;width:2px;background:#ff4d4f;z-index:6}
+.gantt-today::after{content:'今天';position:absolute;top:1px;left:3px;font-size:10px;color:#ff4d4f;white-space:nowrap}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{background:#fff;padding:0 20px;height:48px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);flex-shrink:0}
+.topbar-title{font-size:16px;font-weight:600;color:#333}
+.topbar-info{font-size:12px;color:#888}
+.content{flex:1;overflow-y:auto;padding:20px}
+
+/* 卡片 */
+.card{background:#fff;border-radius:8px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.card-title{font-size:15px;font-weight:600;margin-bottom:16px;color:#333;display:flex;align-items:center;gap:8px}
+.card-title::before{content:'';width:3px;height:16px;background:var(--primary);border-radius:2px;display:inline-block}
+
+/* 统计卡片 */
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+.stat-card{background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08);position:relative;overflow:hidden}
+.stat-card::after{content:'';position:absolute;right:-10px;top:-10px;width:80px;height:80px;border-radius:50%;opacity:.08}
+.stat-card.blue::after{background:var(--primary)}
+.stat-card.green::after{background:var(--success)}
+.stat-card.orange::after{background:var(--warning)}
+.stat-card.red::after{background:var(--danger)}
+.stat-label{font-size:13px;color:#888;margin-bottom:8px}
+.stat-value{font-size:26px;font-weight:700;color:#333}
+.stat-sub{font-size:12px;color:#aaa;margin-top:4px}
+
+/* 表格 */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #f0f0f0;white-space:nowrap}
+th{background:#fafafa;font-weight:600;color:#666;font-size:13px}
+tr:hover td{background:#fafffe}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:500}
+.badge-0{background:#fff7e6;color:#d46b08}
+.badge-1{background:#e6f7ff;color:#0958d9}
+.badge-2{background:#f6ffed;color:#389e0d}
+.badge-3{background:#f0f9ff;color:#1890ff}
+.badge-4{background:#f5f5f5;color:#666}
+
+/* 按钮 */
+.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;font-size:13px;transition:.2s;line-height:1}
+.btn:hover{border-color:var(--primary);color:var(--primary)}
+.btn-primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+.btn-primary:hover{background:#4096ff;border-color:#4096ff;color:#fff}
+.btn-success{background:var(--success);color:#fff;border-color:var(--success)}
+.btn-warning{background:var(--warning);color:#fff;border-color:var(--warning)}
+.btn-danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+.btn-sm{padding:3px 8px;font-size:12px}
+.btn-link{border:none;background:none;color:var(--primary);cursor:pointer;padding:2px 4px;font-size:12px}
+.btn-link:hover{text-decoration:underline}
+
+/* 表单 */
+.form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 20px}
+.form-grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 20px}
+.form-row{display:flex;flex-direction:column;gap:4px}
+.form-row label{font-size:13px;color:#666;font-weight:500}
+.form-row input,.form-row select,.form-row textarea{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;transition:.2s;background:#fff;width:100%}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(22,119,255,.1)}
+.form-actions{display:flex;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid #f0f0f0}
+
+/* 搜索栏 */
+.search-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+.search-bar input,.search-bar select{padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none}
+.search-bar input:focus,.search-bar select:focus{border-color:var(--primary)}
+
+/* 模态框 */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal{background:#fff;border-radius:10px;padding:0;min-width:480px;max-width:90vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.18)}
+.modal-header{padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.modal-header h3{font-size:15px;font-weight:600}
+.modal-close{cursor:pointer;font-size:18px;color:#888;line-height:1;padding:2px}
+.modal-close:hover{color:#333}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.modal-footer{padding:12px 20px;border-top:1px solid #f0f0f0;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0}
+
+/* 明细表格 */
+.detail-table{width:100%;border-collapse:collapse;margin-top:8px}
+.detail-table th{background:#f5f5f5;padding:7px 8px;font-size:12px;font-weight:600;border:1px solid #e8e8e8}
+.detail-table td{padding:5px 6px;border:1px solid #e8e8e8}
+.detail-table td input,.detail-table td select{width:100%;padding:4px 6px;border:1px solid #d9d9d9;border-radius:4px;font-size:12px;outline:none}
+.detail-table td input:focus{border-color:var(--primary)}
+.add-item-btn{margin-top:8px}
+
+/* 工具提示 */
+.empty-tip{text-align:center;padding:40px;color:#aaa;font-size:14px}
+
+/* 分页 */
+.pagination{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:12px}
+.pagination button{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:#fff;cursor:pointer;font-size:13px}
+.pagination button.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+/* 进度条 */
+.progress{height:6px;background:#e8e8e8;border-radius:3px;overflow:hidden}
+.progress-inner{height:100%;background:var(--primary);border-radius:3px;transition:.3s}
+
+/* 响应式 */
+@media(max-width:1200px){.stat-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:900px){.form-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* ═══ 移动端适配（手机 / 平板竖屏）═══ */
+.menu-toggle{display:none;font-size:20px;line-height:1;cursor:pointer;background:none;border:none;color:#333;padding:6px 8px;margin-left:-8px}
+.sidebar-mask{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1090}
+@media(max-width:768px){
+  .menu-toggle{display:block}
+  .sidebar{position:fixed;top:0;left:0;bottom:0;width:78%;max-width:300px;z-index:1100;transform:translateX(-100%);transition:transform .25s ease;box-shadow:2px 0 12px rgba(0,0,0,.3)}
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-mask.show{display:block}
+  .logo-text{display:none}
+  .topbar{padding:0 12px}
+  .topbar-title{font-size:14px}
+  .topbar-info{display:none}
+  .content{padding:12px}
+  .card{padding:14px}
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+  .form-grid,.form-grid-2{grid-template-columns:repeat(2,1fr)}
+  .search-bar{flex-wrap:wrap;gap:8px}
+  .modal{min-width:0;width:94vw;max-width:94vw}
+  .modal-body{padding:16px}
+  .detail-table th,.detail-table td{padding:6px 8px;font-size:12px;white-space:normal}
+  .detail-table input,.detail-table select{padding:5px 6px;font-size:12px}
+}
+@media(max-width:480px){
+  .stat-grid{grid-template-columns:1fr}
+  .form-grid,.form-grid-2{grid-template-columns:1fr}
+  .content{padding:10px}
+  .card{padding:12px}
+  .topbar-user{gap:6px}
+  .topbar-user .urole{display:none}
+  .modal{width:100vw;max-width:100vw;height:100vh;border-radius:0;max-height:100vh}
+  .modal-header{padding:14px 16px}
+  .modal-body{padding:14px}
+  .modal-footer{padding:10px 14px}
+  .table-wrap{margin:0 -10px}
+  .login-box{width:90vw;max-width:360px;padding:32px 24px}
+}
+
+/* 标签页 */
+.tabs{display:flex;border-bottom:2px solid #f0f0f0;margin-bottom:16px;gap:0}
+.tab{padding:10px 20px;cursor:pointer;font-size:14px;color:#666;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.2s}
+.tab:hover{color:var(--primary)}
+.tab.active{color:var(--primary);border-color:var(--primary);font-weight:600}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+/* 标签 */
+.tag{display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px}
+.tag-blue{background:#e6f7ff;color:#1677ff;border:1px solid #91caff}
+.tag-green{background:#f6ffed;color:#52c41a;border:1px solid #b7eb8f}
+.tag-orange{background:#fff7e6;color:#fa8c16;border:1px solid #ffd591}
+.tag-red{background:#fff2f0;color:#ff4d4f;border:1px solid #ffccc7}
+/* 登录覆盖层 */
+#login-overlay{position:fixed;inset:0;background:linear-gradient(135deg,#001529 0%,#003566 100%);display:flex;align-items:center;justify-content:center;z-index:10000}
+#login-overlay.hidden{display:none}
+.login-box{background:#fff;border-radius:12px;padding:40px 48px;width:360px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.login-logo{text-align:center;margin-bottom:28px}
+.login-logo .icon{font-size:40px;display:block;margin-bottom:8px}
+.login-logo h2{font-size:20px;color:#333;font-weight:700}
+.login-logo p{font-size:13px;color:#999;margin-top:4px}
+.login-field{margin-bottom:16px}
+.login-field label{display:block;font-size:13px;color:#555;margin-bottom:6px;font-weight:600}
+.login-field input{width:100%;padding:10px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;outline:none;transition:.2s}
+.login-field input:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(22,119,255,.15)}
+.login-btn{width:100%;padding:11px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;transition:.2s}
+.login-btn:hover{background:#0958d9}
+.login-err{color:#ff4d4f;font-size:13px;margin-top:8px;min-height:18px;text-align:center}
+/* topbar 用户信息 */
+.topbar-user{display:flex;align-items:center;gap:12px;font-size:13px}
+.topbar-user .uname{color:#555;font-weight:600}
+.topbar-user .urole{color:#888;font-size:12px;padding:2px 8px;background:#f0f2f5;border-radius:10px}
+.topbar-user .logout-btn{color:#888;cursor:pointer;padding:4px 8px;border-radius:4px;transition:.2s;font-size:12px}
+.topbar-user .logout-btn:hover{background:#f0f2f5;color:#333}
+</style>
+</head>
+<body>
+<!-- 登录覆盖层（未登录时显示，登录后隐藏） -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">
+      <span class="icon">📦</span>
+      <h2>进销存管理系统</h2>
+      <p>请登录后继续使用</p>
+    </div>
+    <div class="login-field">
+      <label>用户名</label>
+      <input id="login-user" type="text" placeholder="请输入用户名" autocomplete="username"
+             onkeydown="if(event.key==='Enter')document.getElementById('login-pwd').focus()">
+    </div>
+    <div class="login-field">
+      <label>密码</label>
+      <input id="login-pwd" type="password" placeholder="请输入密码" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" onclick="doLogin()">登 录</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+<div id="app">
+  <div class="sidebar">
+    <div class="sidebar-logo"><span>📦</span><span class="logo-text">进销存系统</span></div>
+    <div class="nav-group">
+      <div class="nav-title">总览</div>
+      <div class="nav-item active" onclick="nav('dashboard')"><span class="icon">🏠</span>工作台</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">基础档案</div>
+      <div class="nav-item" data-perm="goods" onclick="nav('goods')"><span class="icon">📋</span>商品档案</div>
+      <div class="nav-item" data-perm="categories" onclick="nav('categories')"><span class="icon">🗂️</span>商品分类</div>
+      <div class="nav-item" data-perm="brands" onclick="nav('brands')"><span class="icon">🏷️</span>品牌管理</div>
+      <div class="nav-item" data-perm="units" onclick="nav('units')"><span class="icon">📏</span>计量单位</div>
+      <div class="nav-item" data-perm="partners" onclick="nav('partners')"><span class="icon">👥</span>往来单位</div>
+      <div class="nav-item" data-perm="warehouses" onclick="nav('warehouses')"><span class="icon">🏭</span>仓库管理</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">进销存</div>
+      <div class="nav-item" data-perm="purchase" onclick="nav('purchase')"><span class="icon">🛒</span>采购入库</div>
+      <div class="nav-item" data-perm="sale" onclick="nav('sale')"><span class="icon">🚚</span>销售出库</div>
+      <div class="nav-item" data-perm="requisition" onclick="nav('requisition')"><span class="icon">🔧</span>耗材领用</div>
+      <div class="nav-item" data-perm="inventory" onclick="nav('inventory')"><span class="icon">📊</span>库存台账</div>
+      <div class="nav-item" data-perm="alert" onclick="nav('alert')"><span class="icon">⚠️</span>库存预警</div>
+      <div class="nav-item" data-perm="logs" onclick="nav('logs')"><span class="icon">📜</span>库存流水</div>
+      <div class="nav-item" data-perm="check" onclick="nav('check')"><span class="icon">🔍</span>库存盘点</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">财务管理</div>
+      <div class="nav-item" data-perm="bank_accounts" onclick="nav('bank_accounts')"><span class="icon">🏦</span>银行账户</div>
+      <div class="nav-item" data-perm="payment" onclick="nav('payment_recv')"><span class="icon">💰</span>收款管理</div>
+      <div class="nav-item" data-perm="payment" onclick="nav('payment_pay')"><span class="icon">💸</span>付款管理</div>
+      <div class="nav-item" data-perm="reconciliation" onclick="nav('reconciliation')"><span class="icon">🧮</span>对账管理</div>
+      <div class="nav-item" data-perm="expense" onclick="nav('expense')"><span class="icon">🧾</span>费用单据</div>
+      <div class="nav-item" data-perm="expense" onclick="nav('expense_report')"><span class="icon">📒</span>费用报表</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">发票</div>
+      <div class="nav-item" data-perm="invoice" onclick="nav('inv_in')"><span class="icon">🧾</span>进项发票</div>
+      <div class="nav-item" data-perm="invoice" onclick="nav('inv_out')"><span class="icon">🧾</span>出项发票</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">项目管理</div>
+      <div class="nav-item" data-perm="projects" onclick="nav('projects')"><span class="icon">📁</span>项目台账</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">统计报表</div>
+      <div class="nav-item" data-perm="stats" onclick="nav('stats')"><span class="icon">📈</span>数据报表</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">系统管理</div>
+      <div class="nav-item" data-perm="system" onclick="nav('system')"><span class="icon">🗄️</span>备份与导入导出</div>
+      <div class="nav-item" data-perm="system" onclick="nav('period')"><span class="icon">📅</span>期末处理（封账/结转）</div>
+      <div class="nav-item admin-only" data-perm="users" onclick="nav('users')" style="display:none"><span class="icon">👤</span>用户管理</div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="menu-toggle" onclick="toggleSidebar()" aria-label="菜单">☰</button>
+        <div class="topbar-title" id="page-title">工作台</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div class="topbar-info" id="top-date"></div>
+        <div class="topbar-user" id="topbar-user" style="display:none">
+          <span class="uname" id="topbar-uname"></span>
+          <span class="urole" id="topbar-urole"></span>
+          <span class="logout-btn" onclick="doLogout()" title="退出登录">⚡ 退出</span>
+        </div>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+<div class="sidebar-mask" onclick="closeSidebar()"></div>
+
+<!-- 模态框容器 -->
+<div id="modal-root"></div>
+
+<script>
+// App（Capacitor 打包）内 window.Capacitor 存在，使用外部服务器地址；浏览器内保持原有同源/本机逻辑
+window.APP_CONFIG = window.APP_CONFIG || { API_BASE: 'https://your-domain.example.com' };
+const API = (typeof window.Capacitor !== 'undefined' && window.APP_CONFIG && window.APP_CONFIG.API_BASE)
+  ? window.APP_CONFIG.API_BASE.replace(/\/+$/, '') + '/api'
+  : (location.host ? '/api' : 'http://127.0.0.1:8899/api');
+
+// ══════════════════════════════════════
+// 左侧菜单分组折叠（手风琴）
+// ══════════════════════════════════════
+document.querySelectorAll('.nav-group').forEach(function(g){
+  const title = g.querySelector('.nav-title');
+  if(!title) return;
+  const key = 'wms_grp_' + title.textContent.trim();
+  if(localStorage.getItem(key) === '0') g.classList.add('collapsed');
+  title.addEventListener('click', function(){
+    g.classList.toggle('collapsed');
+    localStorage.setItem(key, g.classList.contains('collapsed') ? '0' : '1');
+  });
+});
+
+// ══════════════════════════════════════
+// 当前用户会话（登录后填充）
+// ══════════════════════════════════════
+let _session = null; // {token, username, display_name, role}
+let _users = [];      // 系统用户列表，供「业务人员」下拉选择
+
+function getToken(){ return _session ? _session.token : (localStorage.getItem('wms_token')||''); }
+const ROLE_LABELS = {admin:'管理员', operator:'操作员', viewer:'查看员'};
+
+// ══════════════════════════════════════
+// 工具函数
+// ══════════════════════════════════════
+async function request(method, path, body=null){
+  const opts = {method, headers:{'Content-Type':'application/json','X-Token':getToken()}};
+  if(body) opts.body = JSON.stringify(body);
+  const r = await fetch(API+path, opts);
+  if(r.status === 401){
+    // token 失效，重新登录
+    showLoginOverlay('登录已过期，请重新登录');
+    throw new Error('未登录');
+  }
+  if(!r.ok){
+    const err = await r.json().catch(()=>({detail:'请求失败'}));
+    throw new Error(err.detail || '请求失败');
+  }
+  return r.json();
+}
+const get = (p,q='') => request('GET', p+(q?'?'+q:''));
+const post = (p,b) => request('POST',p,b);
+const put = (p,b) => request('PUT',p,b);
+const del = (p) => request('DELETE',p);
+
+function fmtMoney(v){return v==null?'-':'¥'+(+v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}
+function fmtNum(v,d=2){return v==null?'-':(+v).toFixed(d)}
+function fmtDate(s){return s?s.substring(0,10):'-'}
+function toast(msg,type='success'){
+  const d=document.createElement('div');
+  d.textContent=msg;
+  d.style.cssText=`position:fixed;top:20px;right:20px;z-index:9999;padding:10px 20px;border-radius:8px;
+    background:${type==='success'?'#52c41a':type==='error'?'#ff4d4f':'#1677ff'};color:#fff;
+    font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,.15);animation:fadeIn .2s`;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),3000);
+}
+function confirm2(msg,cb){
+  if(window.confirm(msg)) cb();
+}
+function showModal(title,html,footer=''){
+  const m=document.createElement('div');
+  m.className='modal-overlay';
+  m.id='active-modal';
+  m.innerHTML=`<div class="modal"><div class="modal-header"><h3>${title}</h3>
+    <span class="modal-close" onclick="closeModal()">✕</span></div>
+    <div class="modal-body">${html}</div>
+    ${footer?`<div class="modal-footer">${footer}</div>`:''}
+  </div>`;
+  document.getElementById('modal-root').appendChild(m);
+}
+function closeModal(){
+  const m=document.getElementById('active-modal');
+  if(m) m.remove();
+}
+// 通用编码刷新
+async function refreshCode(inputId, type){
+  try{
+    const r=await get('/gen_code',`type=${type}`);
+    const el=document.getElementById(inputId);
+    if(el) el.value=r.code||'';
+  }catch(e){toast('获取编码失败','error')}
+}
+// 往来单位编码刷新（根据当前类型）
+async function refreshPartnerCode(){
+  const typeEl=document.getElementById('fp_type');
+  const typeMap={1:'supplier',2:'customer',3:'partner'};
+  const t=typeEl?typeMap[typeEl.value]||'partner':'partner';
+  await refreshCode('fp_code',t);
+}
+function statusBadge(s,labels){
+  const l=labels[s]||s;
+  return `<span class="badge badge-${s}">${l}</span>`;
+}
+
+// 全局缓存
+let _goods=[], _partners=[], _warehouses=[], _projects=[], _brands=[], _categories=[], _catTree=[], _units=[];
+let _editUserPerms = [];   // 编辑用户时的初始权限键列表
+async function loadCaches(){
+  [_goods,_partners,_warehouses,_projects] = await Promise.all([
+    get('/goods','status=1'),
+    get('/partners'),
+    get('/warehouses'),
+    get('/projects','status=1')
+  ]);
+}
+async function loadBrandsAndCats(){
+  const [bd, cd, un] = await Promise.all([get('/brands'), get('/categories'), get('/units')]);
+  _brands = bd;
+  _categories = cd.list || [];
+  _catTree = cd.tree || [];
+  _units = un || [];
+}
+loadCaches();
+loadBrandsAndCats();
+
+// 品牌下拉选项
+function brandOpts(sel=''){
+  return [('<option value="0">无品牌</option>'),
+    ..._brands.filter(b=>b.status!==0).map(b=>`<option value="${b.id}" ${sel==b.id?'selected':''}>${b.name}</option>`)
+  ].join('');
+}
+
+// 计量单位下拉选项
+function unitOpts(sel='', allowEmpty=false){
+  let opts = allowEmpty ? '<option value="">（无）</option>' : '';
+  const names = _units.map(u=>u.name);
+  // 当前值不在字典中时（旧数据/导入），先补一个选项避免丢失
+  if(sel && !names.includes(sel)){
+    opts += `<option value="${sel}" selected>${sel}（未在字典中）</option>`;
+  }
+  opts += _units.map(u=>`<option value="${u.name}" ${sel===u.name?'selected':''}>${u.name}</option>`).join('');
+  opts += '<option value="__add__">➕ 新增单位…</option>';
+  return opts;
+}
+// 计量单位下拉（含行内新增）；id 为 select 元素 id，sel 为当前选中单位名
+function unitSelect(id, sel='', allowEmpty=false){
+  return `<select id="${id}" onchange="onUnitSelectChange('${id}',${allowEmpty})">${unitOpts(sel, allowEmpty)}</select>`;
+}
+async function onUnitSelectChange(id, allowEmpty){
+  const el = document.getElementById(id);
+  if(el.value !== '__add__') return;
+  const name = prompt('请输入新计量单位名称：');
+  if(!name || !name.trim()){ // 取消则回退
+    if(allowEmpty) el.value=''; else if(_units.length) el.value=_units[0].name; else el.value='';
+    return;
+  }
+  try{
+    await post('/units', {name: name.trim(), remark: ''});
+    await loadBrandsAndCats();
+    el.innerHTML = unitOpts(allowEmpty?'':name.trim(), allowEmpty);
+    el.value = name.trim();
+    toast('已添加单位','success');
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// 分类下拉选项（扁平，带缩进显示层级）
+function categoryOpts(sel='', parentId=0, depth=0){
+  const indent = '　'.repeat(depth);
+  let opts = depth===0 ? '<option value="0">无分类</option>' : '';
+  const children = _categories.filter(c=> (c.parent_id||0) === parentId);
+  for(const c of children){
+    opts += `<option value="${c.id}" ${sel==c.id?'selected':''}>${indent}${c.name}</option>`;
+    opts += categoryOpts(sel, c.id, depth+1);
+  }
+  return opts;
+}
+
+// 构建分类树 HTML（用于管理页面）
+function renderCatTree(items, parentId=0, depth=0){
+  const children = items.filter(c=>(c.parent_id||0)===parentId);
+  if(!children.length) return '';
+  const pad = depth*20;
+  return children.map(c=>`
+    <div style="padding-left:${pad}px;display:flex;align-items:center;gap:8px;padding-top:6px;padding-bottom:6px;border-bottom:1px solid #f0f0f0">
+      <span style="color:#999;font-size:12px">${['','一','二','三'][c.level]||''}级</span>
+      <b style="flex:1">${c.name}</b>
+      <button class="btn-link" onclick="editCategory(${c.id},'${c.name.replace(/'/g,"\\'")}',${c.parent_id||0},${c.sort_order||0})">编辑</button>
+      ${c.level<3?`<button class="btn-link" onclick="editCategory(null,'',${c.id},0)">➕子分类</button>`:''}
+      <button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除「${c.name}」？',()=>delCategory(${c.id}))">删除</button>
+    </div>
+    ${renderCatTree(items, c.id, depth+1)}
+  `).join('');
+}
+
+function goodsOpts(sel=''){
+  return _goods.map(g=>{
+    const extra=[g.spec,g.model].filter(Boolean).join('/');
+    return `<option value="${g.id}" data-unit="${g.unit}" data-price="${g.ref_purchase_price}" data-sell="${g.ref_sale_price}" data-tax="${g.default_tax_rate}" data-spec="${g.spec||''}" data-model="${g.model||''}" ${sel==g.id?'selected':''}>${g.code} - ${g.name}${extra?' ('+extra+')':''}</option>`;
+  }).join('');
+}
+function partnerOpts(type=-1,sel=''){
+  return _partners.filter(p=>type<0||p.type==3||p.type==type)
+    .map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${p.name}</option>`).join('');
+}
+function warehouseOpts(sel=''){
+  return _warehouses.map(w=>`<option value="${w.id}" ${sel==w.id?'selected':''}>${w.name}</option>`).join('');
+}
+function projectOpts(sel=''){
+  return [('<option value="">无</option>'),..._projects.map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${p.code} - ${p.name}</option>`)].join('');
+}
+// 业务人员下拉（数据源为系统用户）。默认选中当前登录用户，便于快速填写
+function userOpts(sel=''){
+  const cur = sel || (_session && (_session.display_name || _session.username)) || '';
+  const opts = (_users||[]).map(u=>{
+    const name = u.display_name || u.username;
+    return `<option value="${name}" ${name===cur?'selected':''}>${name}${u.status===0?'（已禁用）':''}</option>`;
+  }).join('');
+  return `<option value="">请选择</option>${opts}`;
+}
+async function loadUsers(){
+  try{ const rows = await get('/users/options'); _users = rows || []; }
+  catch(e){ _users = []; }
+}
+// 筛选用下拉：默认「全部」，不自动选中当前登录用户
+function userOptsFilter(sel=''){
+  const opts = (_users||[]).map(u=>{
+    const name = u.display_name || u.username;
+    return `<option value="${name}" ${name===sel?'selected':''}>${name}${u.status===0?'（已禁用）':''}</option>`;
+  }).join('');
+  return `<option value="">全部</option>${opts}`;
+}
+
+// ══════════════════════════════════════
+// 导航
+// ══════════════════════════════════════
+const PAGE_TITLES = {
+  dashboard:'工作台',goods:'商品档案',categories:'商品分类',brands:'品牌管理',units:'计量单位',
+  partners:'往来单位',warehouses:'仓库管理',
+  purchase:'采购入库',sale:'销售出库',requisition:'耗材领用',
+  inventory:'库存台账',alert:'库存预警',logs:'库存流水',check:'库存盘点',
+  bank_accounts:'银行账户',payment_recv:'收款管理',payment_pay:'付款管理',reconciliation:'对账管理',
+  expense:'费用单据',expense_report:'费用报表',
+  inv_in:'进项发票',inv_out:'出项发票',projects:'项目台账',stats:'数据报表',
+  system:'备份与导入导出',
+  users:'用户管理',
+  period:'期末处理（封账/结转）'
+};
+// 模块权限清单（key 与后端 PATH_MODULE 一致），用于员工权限设置
+const MODULE_LIST = [
+  ['goods','商品档案'],['categories','商品分类'],['brands','品牌管理'],['units','计量单位'],
+  ['partners','往来单位'],['warehouses','仓库管理'],
+  ['purchase','采购入库'],['sale','销售出库'],['requisition','耗材领用'],
+  ['inventory','库存台账'],['alert','库存预警'],['logs','库存流水'],['check','库存盘点'],
+  ['bank_accounts','银行账户'],['payment','收付款管理'],['reconciliation','对账管理'],
+  ['expense','费用管理'],['invoice','发票管理'],['projects','项目台账'],['stats','数据报表'],
+  ['system','系统设置(备份/导入导出)']
+];
+function toggleSidebar(){
+  document.querySelector('.sidebar').classList.toggle('open');
+  document.querySelector('.sidebar-mask').classList.toggle('show');
+}
+function closeSidebar(){
+  document.querySelector('.sidebar').classList.remove('open');
+  document.querySelector('.sidebar-mask').classList.remove('show');
+}
+let _curPage='dashboard';
+function nav(page){
+  closeSidebar(); // 手机端点菜单项后自动收起抽屉
+  document.querySelectorAll('.nav-item').forEach(el=>{
+    el.classList.toggle('active', el.getAttribute('onclick')===`nav('${page}')`);
+  });
+  document.getElementById('page-title').textContent = PAGE_TITLES[page]||page;
+  _curPage = page;
+  pages[page]();
+}
+
+// ══════════════════════════════════════
+// 审核 / 反审核 / 作废 通用执行（type: invoice/payment/expense/recon/check）
+// ══════════════════════════════════════
+const _AUDIT = {
+  invoice: {path:'/invoices', reload:()=>nav(_curPage)},
+  payment: {path:'/payments', reload:()=>nav(_curPage)},
+  expense: {path:'/expenses', reload:()=>nav(_curPage)},
+  recon:   {path:'/reconciliations', reload:()=>nav(_curPage)},
+  check:   {path:'/check', reload:()=>nav(_curPage)},
+};
+async function _audit(type,id,act){
+  try{
+    await post(_AUDIT[type].path+'/'+id+'/'+act);
+    toast(act==='approve'?'已审核':act==='unapprove'?'已反审核':'已作废');
+    _AUDIT[type].reload();
+  }catch(e){ toast(e.message,'error'); }
+}
+function doApprove(t,id){ _audit(t,id,'approve'); }
+function doUnapprove(t,id){ _audit(t,id,'unapprove'); }
+function doVoid(t,id){ _audit(t,id,'void'); }
+
+// 更新顶部时间
+setInterval(()=>{
+  document.getElementById('top-date').textContent=new Date().toLocaleString('zh-CN');
+},1000);
+document.getElementById('top-date').textContent=new Date().toLocaleString('zh-CN');
+
+// ══════════════════════════════════════
+// 页面：工作台
+// ══════════════════════════════════════
+async function pageDashboard(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div style="text-align:center;padding:40px;color:#aaa">加载中...</div>';
+  const d = await get('/stats/dashboard');
+  c.innerHTML=`
+  <div class="stat-grid">
+    <div class="stat-card blue">
+      <div class="stat-label">本月采购额</div>
+      <div class="stat-value">${fmtMoney(d.purchase_month)}</div>
+      <div class="stat-sub">待处理采购单 ${d.pending_purchase} 张</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">本月销售额</div>
+      <div class="stat-value">${fmtMoney(d.sale_month)}</div>
+      <div class="stat-sub">待处理销售单 ${d.pending_sale} 张</div>
+    </div>
+    <div class="stat-card orange">
+      <div class="stat-label">本月毛利</div>
+      <div class="stat-value">${fmtMoney(d.profit_month)}</div>
+      <div class="stat-sub">进行中项目 ${d.project_count} 个</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">库存预警</div>
+      <div class="stat-value" style="color:${d.stock_alert>0?'#ff4d4f':'#52c41a'}">${d.stock_alert}</div>
+      <div class="stat-sub">待开发票 ${d.invoice_count} 张</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="card">
+      <div class="card-title">最近采购入库</div>
+      <table><thead><tr><th>单据号</th><th>供应商</th><th>日期</th><th>金额</th></tr></thead>
+      <tbody>${d.recent_purchase.map(r=>`<tr>
+        <td><span style="color:var(--primary)">${r.order_no}</span></td>
+        <td>${r.supplier_name||'-'}</td><td>${fmtDate(r.order_date)}</td>
+        <td>${fmtMoney(r.total_amount)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty-tip">暂无数据</td></tr>'}
+      </tbody></table>
+    </div>
+    <div class="card">
+      <div class="card-title">最近销售出库</div>
+      <table><thead><tr><th>单据号</th><th>客户</th><th>日期</th><th>金额</th><th>毛利</th></tr></thead>
+      <tbody>${d.recent_sale.map(r=>`<tr>
+        <td><span style="color:var(--primary)">${r.order_no}</span></td>
+        <td>${r.customer_name||'-'}</td><td>${fmtDate(r.order_date)}</td>
+        <td>${fmtMoney(r.total_amount)}</td>
+        <td style="color:${r.gross_profit>=0?'#52c41a':'#ff4d4f'}">${fmtMoney(r.gross_profit)}</td>
+        </tr>`).join('')||'<tr><td colspan="5" class="empty-tip">暂无数据</td></tr>'}
+      </tbody></table>
+    </div>
+  </div>`;
+}
+
+// ══════════════════════════════════════
+// 页面：商品档案
+// ══════════════════════════════════════
+async function pageGoods(){
+  await loadBrandsAndCats();
+  const c=document.getElementById('content');
+  c.innerHTML=`
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="search-bar">
+        <input id="gkw" placeholder="搜索商品名/编码/规格/型号/条码" style="width:220px">
+        <select id="g_brand_filter" style="width:110px">
+          <option value="-1">全部品牌</option>
+          ${_brands.map(b=>`<option value="${b.id}">${b.name}</option>`).join('')}
+        </select>
+        <select id="g_cat_filter" style="width:130px">
+          <option value="-1">全部分类</option>
+          ${categoryOpts(-1)}
+        </select>
+        <button class="btn btn-primary" onclick="loadGoods()">🔍 查询</button>
+        <button class="btn" onclick="editGoods()">➕ 新增商品</button>
+        <button class="btn" onclick="exportGoods()" title="导出全部商品为CSV">⬇️ 导出</button>
+        <button class="btn" onclick="document.getElementById('goods-import-file').click()" title="从CSV导入商品">⬆️ 导入</button>
+        <input type="file" id="goods-import-file" accept=".csv" style="display:none" onchange="importGoods(this)">
+        <button class="btn" onclick="downloadGoodsTemplate()" style="color:#888;font-size:12px" title="下载导入模板">📄 模板</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+    <table><thead><tr>
+      <th>编码</th><th>名称</th><th>品牌</th><th>分类</th><th>规格</th><th>型号</th><th>条码</th><th>主单位</th><th>辅单位</th><th>参考进价</th><th>参考售价</th>
+      <th>税率</th><th>库存下限</th><th>状态</th><th>操作</th>
+    </tr></thead>
+    <tbody id="goods-tbody"></tbody></table></div>
+  </div>`;
+  loadGoods();
+}
+async function loadGoods(){
+  const kw=document.getElementById('gkw')?.value||'';
+  const brand=document.getElementById('g_brand_filter')?.value||'-1';
+  const cat=document.getElementById('g_cat_filter')?.value||'-1';
+  const rows=await get('/goods',`keyword=${encodeURIComponent(kw)}&brand_id=${brand}&category_id=${cat}`);
+  _goods=rows;
+  document.getElementById('goods-tbody').innerHTML=rows.length
+    ?rows.map(g=>`<tr>
+      <td>${g.code}</td><td><b>${g.name}</b></td>
+      <td>${g.brand_name||'-'}</td>
+      <td><small style="color:#888">${g.category_path||'-'}</small></td>
+      <td>${g.spec||'-'}</td><td>${g.model||'-'}</td><td>${g.barcode||'-'}</td><td>${g.unit||'-'}</td>
+      <td>${g.unit2?`${g.unit2} <small style="color:#888">(1${g.unit}=${g.unit2_rate}${g.unit2})</small>`:'-'}</td>
+      <td>${fmtMoney(g.ref_purchase_price)}</td><td>${fmtMoney(g.ref_sale_price)}</td>
+      <td>${g.default_tax_rate}%</td><td>${g.stock_min}</td>
+      <td>${g.status?'<span class="tag tag-green">启用</span>':'<span class="tag tag-red">停用</span>'}</td>
+      <td>
+        <button class="btn-link" onclick="editGoods(${g.id})">编辑</button>
+        <button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认停用？',()=>delGoods(${g.id}))">停用</button>
+      </td></tr>`).join('')
+    :'<tr><td colspan="15" class="empty-tip">暂无数据</td></tr>';
+}
+async function editGoods(id=null){
+  await loadBrandsAndCats();
+  let g={code:'',name:'',spec:'',model:'',brand_id:0,unit:'个',category_id:0,default_tax_rate:13,ref_purchase_price:0,ref_sale_price:0,stock_min:0,stock_max:99999,status:1,remark:''};
+  if(id) g=await get('/goods/'+id);
+  // 新增时自动获取编码
+  if(!id){try{const r=await get('/gen_code','type=goods');g.code=r.code||'';}catch(e){}}
+  showModal(id?'编辑商品':'新增商品',`
+  <div class="form-grid">
+    <div class="form-row"><label>商品编码</label>
+      <div style="display:flex;gap:4px">
+        <input id="f_code" value="${g.code}" style="flex:1${!id?';background:#f5f5f5;color:#666':''}" ${!id?'readonly':''}>
+        ${!id?`<button class="btn btn-sm" onclick="refreshCode('f_code','goods')" title="重新生成">↺</button>`:''}
+      </div>
+    </div>
+    <div class="form-row"><label>商品名称*</label><input id="f_name" value="${g.name}"></div>
+    <div class="form-row"><label>品牌</label>
+      <select id="f_brand">${brandOpts(g.brand_id||0)}</select>
+    </div>
+    <div class="form-row"><label>商品分类</label>
+      <select id="f_cat">${categoryOpts(g.category_id||0)}</select>
+    </div>
+    <div class="form-row"><label>规格</label><input id="f_spec" value="${g.spec||''}" placeholder="如：500ml"></div>
+    <div class="form-row"><label>型号</label><input id="f_model" value="${g.model||''}" placeholder="如：AB-100"></div>
+    <div class="form-row"><label>商品条码</label><input id="f_barcode" value="${g.barcode||''}" placeholder="扫码枪/手动录入，可留空"></div>
+    <div class="form-row"><label>主单位</label>${unitSelect('f_unit', g.unit||'个', false)}</div>
+    <div class="form-row"><label>辅单位</label>${unitSelect('f_unit2', g.unit2||'', true)}</div>
+    <div class="form-row"><label>换算率</label><input id="f_unit2_rate" type="number" step="any" min="0" value="${g.unit2_rate!=null?g.unit2_rate:''}" placeholder="1主单位=?辅单位"></div>
+    <div class="form-row"><label>默认税率(%)</label><input id="f_tax" type="number" value="${g.default_tax_rate}"></div>
+    <div class="form-row"><label>参考进价</label><input id="f_pp" type="number" value="${g.ref_purchase_price}"></div>
+    <div class="form-row"><label>参考售价</label><input id="f_sp" type="number" value="${g.ref_sale_price}"></div>
+    <div class="form-row"><label>库存下限</label><input id="f_min" type="number" value="${g.stock_min}"></div>
+    <div class="form-row"><label>库存上限</label><input id="f_max" type="number" value="${g.stock_max}"></div>
+    <div class="form-row"><label>状态</label><select id="f_st"><option value="1" ${g.status?'selected':''}>启用</option><option value="0" ${!g.status?'selected':''}>停用</option></select></div>
+    <div class="form-row" style="grid-column:span 3"><label>备注</label><input id="f_rem" value="${g.remark||''}"></div>
+  </div>
+  <div style="font-size:12px;color:#aaa;margin-top:6px">换算率含义：1 个主单位 = 多少辅单位（如主单位"箱"、辅单位"瓶"，1箱=24瓶 则填 24）。辅单位留空表示不启用。</div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveGoods(${id||'null'})">保存</button>`);
+}
+async function saveGoods(id){
+  const body={
+    code:document.getElementById('f_code').value,
+    name:document.getElementById('f_name').value,
+    spec:document.getElementById('f_spec').value,
+    model:document.getElementById('f_model').value,
+    barcode:document.getElementById('f_barcode').value.trim(),
+    brand_id:+document.getElementById('f_brand').value||0,
+    unit:document.getElementById('f_unit').value,
+    unit2:document.getElementById('f_unit2').value.trim(),
+    unit2_rate:+document.getElementById('f_unit2_rate').value||0,
+    category_id:+document.getElementById('f_cat').value||0,
+    default_tax_rate:+document.getElementById('f_tax').value,
+    ref_purchase_price:+document.getElementById('f_pp').value,
+    ref_sale_price:+document.getElementById('f_sp').value,
+    stock_min:+document.getElementById('f_min').value,
+    stock_max:+document.getElementById('f_max').value,
+    status:+document.getElementById('f_st').value,
+    remark:document.getElementById('f_rem').value,
+  };
+  try{
+    id?await put('/goods/'+id,body):await post('/goods',body);
+    toast(id?'保存成功':'新增成功'); closeModal(); loadGoods(); loadCaches();
+  }catch(e){toast(e.message,'error')}
+}
+async function delGoods(id){
+  try{await del('/goods/'+id);toast('已停用');loadGoods();}catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 页面：往来单位
+// ══════════════════════════════════════
+async function pagePartners(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <input id="pkw" placeholder="搜索名称/编码/联系人" style="width:220px">
+    <select id="ptype" style="width:100px">
+      <option value="-1">全部类型</option>
+      <option value="1">供应商</option>
+      <option value="2">客户</option>
+      <option value="3">两者</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadPartners()">🔍 查询</button>
+    <button class="btn" onclick="editPartner()">➕ 新增</button>
+    <button class="btn" onclick="exportPartners()" title="导出全部往来单位为CSV">⬇️ 导出</button>
+    <button class="btn" onclick="document.getElementById('partner-import-file').click()" title="从CSV导入往来单位">⬆️ 导入</button>
+    <input type="file" id="partner-import-file" accept=".csv" style="display:none" onchange="importPartners(this)">
+    <button class="btn" onclick="downloadPartnersTemplate()" style="color:#888;font-size:12px" title="下载导入模板">📄 模板</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>名称</th><th>类型</th><th>联系人</th><th>电话</th><th>税号</th><th>地址</th><th>操作</th>
+  </tr></thead><tbody id="partners-tbody"></tbody></table></div></div>`;
+  loadPartners();
+}
+async function loadPartners(){
+  const kw=document.getElementById('pkw').value;
+  const type=document.getElementById('ptype').value;
+  const rows=await get('/partners',`keyword=${kw}&type=${type}`);
+  _partners=rows;
+  const TYPE={1:'供应商',2:'客户',3:'两者'};
+  document.getElementById('partners-tbody').innerHTML=rows.length
+    ?rows.map(p=>`<tr>
+      <td><b>${p.name}</b></td>
+      <td><span class="tag ${p.type==1?'tag-blue':p.type==2?'tag-green':'tag-orange'}">${TYPE[p.type]||'-'}</span></td>
+      <td>${p.contact||'-'}</td><td>${p.phone||'-'}</td>
+      <td>${p.tax_no||'-'}</td><td>${p.address||'-'}</td>
+      <td>
+        <button class="btn-link" onclick="editPartner(${p.id})">编辑</button>
+        <button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除？',()=>delPartner(${p.id}))">删除</button>
+      </td></tr>`).join('')
+    :'<tr><td colspan="7" class="empty-tip">暂无数据</td></tr>';
+}
+async function editPartner(id=null){
+  let p={code:'',name:'',type:1,contact:'',phone:'',address:'',tax_no:'',bank_name:'',bank_account:'',remark:''};
+  if(id) p=await get('/partners').then(list=>list.find(x=>x.id==id)||p);
+  // 新增时根据类型自动获取编码
+  if(!id){
+    const typeMap={1:'supplier',2:'customer',3:'partner'};
+    try{const r=await get('/gen_code',`type=${typeMap[p.type]||'partner'}`);p.code=r.code||'';}catch(e){}
+  }
+  showModal(id?'编辑往来单位':'新增往来单位',`
+  <div class="form-grid">
+    <div class="form-row"><label>单位名称*</label><input id="fp_name" value="${p.name}"></div>
+    <div class="form-row"><label>单位编码</label>
+      <div style="display:flex;gap:4px">
+        <input id="fp_code" value="${p.code||''}" style="flex:1${!id?';background:#f5f5f5;color:#666':''}" ${!id?'readonly':''}>
+        ${!id?`<button class="btn btn-sm" onclick="refreshPartnerCode()" title="重新生成">↺</button>`:''}
+      </div>
+    </div>
+    <div class="form-row"><label>类型</label>
+      <select id="fp_type" onchange="${!id?'refreshPartnerCode()':''}">
+        <option value="1" ${p.type==1?'selected':''}>供应商</option>
+        <option value="2" ${p.type==2?'selected':''}>客户</option>
+        <option value="3" ${p.type==3?'selected':''}>两者</option>
+      </select>
+    </div>
+    <div class="form-row"><label>联系人</label><input id="fp_contact" value="${p.contact||''}"></div>
+    <div class="form-row"><label>联系电话</label><input id="fp_phone" value="${p.phone||''}"></div>
+    <div class="form-row"><label>税号</label><input id="fp_tax" value="${p.tax_no||''}"></div>
+    <div class="form-row"><label>开户行</label><input id="fp_bank" value="${p.bank_name||''}"></div>
+    <div class="form-row"><label>银行账号</label><input id="fp_ba" value="${p.bank_account||''}"></div>
+    <div class="form-row"><label>地址</label><input id="fp_addr" value="${p.address||''}"></div>
+    <div class="form-row"><label>备注</label><input id="fp_rem" value="${p.remark||''}"></div>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="savePartner(${id||'null'})">保存</button>`);
+}
+async function savePartner(id){
+  const body={
+    code:document.getElementById('fp_code').value,
+    name:document.getElementById('fp_name').value,
+    type:+document.getElementById('fp_type').value,
+    contact:document.getElementById('fp_contact').value,
+    phone:document.getElementById('fp_phone').value,
+    tax_no:document.getElementById('fp_tax').value,
+    bank_name:document.getElementById('fp_bank').value,
+    bank_account:document.getElementById('fp_ba').value,
+    address:document.getElementById('fp_addr').value,
+    remark:document.getElementById('fp_rem').value,
+    status:1
+  };
+  try{
+    id?await put('/partners/'+id,body):await post('/partners',body);
+    toast('保存成功'); closeModal(); loadPartners(); loadCaches();
+  }catch(e){toast(e.message,'error')}
+}
+async function delPartner(id){
+  try{await del('/partners/'+id);toast('已删除');loadPartners();}catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 页面：仓库
+// ══════════════════════════════════════
+async function pageWarehouses(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <button class="btn" onclick="editWarehouse()">➕ 新增仓库</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>编码</th><th>名称</th><th>管理员</th><th>状态</th><th>备注</th>
+  </tr></thead><tbody id="wh-tbody"></tbody></table></div></div>`;
+  const rows=await get('/warehouses');
+  _warehouses=rows;
+  document.getElementById('wh-tbody').innerHTML=rows.map(w=>`<tr>
+    <td>${w.code}</td><td><b>${w.name}</b></td><td>${w.manager||'-'}</td>
+    <td><span class="tag ${w.status?'tag-green':'tag-red'}">${w.status?'启用':'停用'}</span></td>
+    <td>${w.remark||'-'}</td></tr>`).join('');
+}
+async function editWarehouse(){
+  let code='';
+  try{const r=await get('/gen_code','type=warehouse');code=r.code||'';}catch(e){}
+  showModal('新增仓库',`
+  <div class="form-grid-2">
+    <div class="form-row"><label>仓库编码</label>
+      <div style="display:flex;gap:4px">
+        <input id="fw_code" value="${code}" readonly style="flex:1;background:#f5f5f5;color:#666">
+        <button class="btn btn-sm" onclick="refreshCode('fw_code','warehouse')" title="重新生成">↺</button>
+      </div>
+    </div>
+    <div class="form-row"><label>仓库名称*</label><input id="fw_name"></div>
+    <div class="form-row"><label>管理员</label><input id="fw_mgr"></div>
+    <div class="form-row"><label>备注</label><input id="fw_rem"></div>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveWarehouse()">保存</button>`);
+}
+async function saveWarehouse(){
+  try{
+    await post('/warehouses',{
+      code:document.getElementById('fw_code').value,
+      name:document.getElementById('fw_name').value,
+      manager:document.getElementById('fw_mgr').value,
+      remark:document.getElementById('fw_rem').value
+    });
+    toast('新增成功'); closeModal(); pageWarehouses(); loadCaches();
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 采购单
+// ══════════════════════════════════════
+async function pagePurchase(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <input id="po_kw" placeholder="单号/供应商" style="width:180px">
+    <select id="po_status" style="width:100px">
+      <option value="-1">全部状态</option>
+      <option value="0">草稿</option>
+      <option value="1">待审核</option>
+      <option value="2">已审核</option>
+      <option value="3">已入库</option>
+    </select>
+    <label style="font-size:13px;color:#666">执行人</label><select id="po_op_f" style="width:120px">${userOptsFilter()}</select>
+    <label style="font-size:13px;color:#666">业务人员</label><select id="po_bp_f" style="width:120px">${userOptsFilter()}</select>
+    <button class="btn btn-primary" onclick="loadPurchase()">🔍 查询</button>
+    <button class="btn" onclick="newPurchaseOrder()">➕ 新建采购单</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>单据号</th><th>供应商</th><th>项目</th><th>仓库</th><th>日期</th>
+    <th>含税金额</th><th>发票需求</th><th>状态</th><th>执行人</th><th>业务人员</th><th>操作</th>
+  </tr></thead><tbody id="po-tbody"></tbody></table></div></div>`;
+  loadPurchase();
+}
+const PO_STATUS={0:'草稿',1:'待审核',2:'已审核',3:'已入库',4:'已关闭'};
+async function loadPurchase(){
+  const kw=encodeURIComponent(document.getElementById('po_kw').value);
+  const st=document.getElementById('po_status').value;
+  const op=encodeURIComponent(document.getElementById('po_op_f').value);
+  const bp=encodeURIComponent(document.getElementById('po_bp_f').value);
+  const rows=await get('/purchase',`keyword=${kw}&status=${st}&operator=${op}&business_person=${bp}`);
+  document.getElementById('po-tbody').innerHTML=rows.length
+    ?rows.map(r=>`<tr>
+      <td><button class="btn-link" onclick="viewPurchase(${r.id})">${r.order_no}</button></td>
+      <td>${r.supplier_name||'-'}</td><td>${r.project_name||'-'}</td>
+      <td>${r.warehouse_name||'-'}</td><td>${fmtDate(r.order_date)}</td>
+      <td>${fmtMoney(r.total_amount)}</td>
+      <td>${r.invoice_need?`<span class="tag tag-orange" title="${r.invoice_type_req||''}">🧾 ${r.invoice_type_req||'需开票'}</span>`:'<span style="color:#bbb;font-size:12px">-</span>'}</td>
+      <td>${statusBadge(r.status,PO_STATUS)}</td>
+      <td>${r.operator||'-'}</td>
+      <td>${r.business_person||'-'}</td>
+      <td>
+        ${r.status==0?`<button class="btn-link" onclick="submitPO(${r.id})">提交</button>`:''}
+        ${r.status==1?`<button class="btn-link" onclick="approvePO(${r.id})">审核</button>`:''}
+        ${r.status==2?`<button class="btn-link btn-success" onclick="instockPO(${r.id})">入库</button>`:''}
+        ${r.status<3?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除？',()=>deletePO(${r.id}))">删除</button>`:''}
+      </td></tr>`).join('')
+    :'<tr><td colspan="11" class="empty-tip">暂无数据</td></tr>';
+}
+async function submitPO(id){try{await post('/purchase/'+id+'/submit');toast('已提交');loadPurchase();}catch(e){toast(e.message,'error')}}
+async function approvePO(id){try{await post('/purchase/'+id+'/approve');toast('审核通过');loadPurchase();}catch(e){toast(e.message,'error')}}
+async function instockPO(id){try{await post('/purchase/'+id+'/instock');toast('入库成功');loadPurchase();}catch(e){toast(e.message,'error')}}
+async function deletePO(id){try{await del('/purchase/'+id);toast('已删除');loadPurchase();}catch(e){toast(e.message,'error')}}
+
+async function viewPurchase(id){
+  const d=await get('/purchase/'+id);
+  const statusLabel=PO_STATUS[d.status];
+  showModal(`采购单详情 - ${d.order_no}`,`
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 16px;margin-bottom:16px;background:#fafafa;padding:12px;border-radius:6px;font-size:13px">
+    <div><label style="color:#888">供应商：</label>${d.supplier_name||'-'}</div>
+    <div><label style="color:#888">项目：</label>${d.project_name||'-'}</div>
+    <div><label style="color:#888">仓库：</label>${d.warehouse_name||'-'}</div>
+    <div><label style="color:#888">日期：</label>${fmtDate(d.order_date)}</div>
+    <div><label style="color:#888">状态：</label>${statusLabel}</div>
+    <div><label style="color:#888">执行人：</label>${d.operator||'-'}</div>
+    <div><label style="color:#888">业务人员：</label>${d.business_person||'-'}</div>
+    <div><label style="color:#888">手续费：</label>${d.fee?fmtMoney(d.fee):'-'}</div>
+    <div style="grid-column:span 3;border-top:1px solid #eee;padding-top:8px;margin-top:4px">
+      <label style="color:#888">发票需求：</label>
+      ${d.invoice_need
+        ? `<span class="tag tag-orange">🧾 需要开票</span> <b style="margin-left:8px">${d.invoice_type_req||'类型未指定'}</b>`
+        : '<span style="color:#bbb">无需开票</span>'}
+    </div>
+  </div>
+  <table class="detail-table"><thead><tr>
+    <th>商品</th><th>规格</th><th>型号</th><th>单位</th><th>数量</th><th>含税单价</th><th>税率</th><th>税额</th><th>含税金额</th>
+  </tr></thead><tbody>
+  ${d.items.map(i=>`<tr>
+    <td>${i.goods_name}</td><td>${i.spec||'-'}</td><td>${i.model||'-'}</td><td>${i.unit}</td>
+    <td>${fmtNum(i.qty)}</td><td>${fmtMoney(i.unit_price)}</td>
+    <td>${i.tax_rate}%</td><td>${fmtMoney(i.tax_amount)}</td>
+    <td><b>${fmtMoney(i.total_amount)}</b></td>
+  </tr>`).join('')}
+  </tbody><tfoot><tr>
+    <td colspan="6" style="text-align:right;font-weight:600">合计：</td>
+    <td>${fmtMoney(d.tax_amount)}</td>
+    <td><b style="color:var(--danger)">${fmtMoney(d.total_amount)}</b></td>
+  </tr></tfoot></table>
+  ${d.remark?`<div style="margin-top:8px;color:#888;font-size:12px">备注：${d.remark}</div>`:''}`,
+  `<button class="btn" onclick="closeModal()">关闭</button>`);
+}
+
+function newPurchaseOrder(){
+  let items=[];
+  const today=new Date().toISOString().substring(0,10);
+  showModal('新建采购单',`
+  <div class="form-grid" style="margin-bottom:16px">
+    <div class="form-row"><label>供应商</label>
+      <select id="po_sup"><option value="">请选择</option>${partnerOpts(1)}</select></div>
+    <div class="form-row"><label>入库仓库*</label>
+      <select id="po_wh"><option value="">请选择</option>${warehouseOpts()}</select></div>
+    <div class="form-row"><label>关联项目</label>
+      <select id="po_proj">${projectOpts()}</select></div>
+    <div class="form-row"><label>采购日期</label>
+      <input type="date" id="po_date" value="${today}"></div>
+    <div class="form-row"><label>执行人</label><input id="po_exec" value="${_session?.display_name||''}" disabled style="background:#f5f5f5;color:#999"></div>
+    <div class="form-row"><label>业务人员</label><select id="po_bp">${userOpts()}</select></div>
+    <div class="form-row"><label>备注</label><input id="po_rem"></div>
+    <div class="form-row"><label>手续费(元)</label><input id="po_fee" type="number" step="0.01" min="0" placeholder="0.00" value="0"></div>
+    <div class="form-row">
+      <label>🧾 发票</label>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap">
+          <input type="radio" name="po_inv_need" id="po_inv_no" value="0" checked onchange="togglePOInvType()">
+          <span style="font-size:13px">无需</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap">
+          <input type="radio" name="po_inv_need" id="po_inv_yes" value="1" onchange="togglePOInvType()">
+          <span style="font-size:13px">需要</span>
+        </label>
+        <select id="po_inv_type" style="display:none;height:28px;font-size:13px;border:1px solid #d9d9d9;border-radius:4px;padding:0 6px;color:#333">
+          <option value="增值税发票">增值税专票</option>
+          <option value="普通发票">增值税普通发票</option>
+          <option value="收据">收据</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+    <span style="font-size:13px;color:#666">🔫 扫码录入：</span>
+    <input id="po_barcode" placeholder="扫商品条码/编码自动添加明细" style="width:240px"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();scanAddPOItem()}">
+    <span style="font-size:12px;color:#aaa">（支持扫码枪，扫完自动回车）</span>
+  </div>
+  <div style="font-weight:600;margin-bottom:8px">商品明细</div>
+  <table class="detail-table" id="po_items_table">
+    <thead><tr><th>商品*</th><th>规格</th><th>型号</th><th>单位</th><th width="80">数量*</th><th width="100">含税单价*</th><th width="60">税率%</th><th width="90">金额</th><th width="40">删</th></tr></thead>
+    <tbody id="po_items_body"></tbody>
+  </table>
+  <button class="btn add-item-btn" onclick="addPOItem()">➕ 添加商品</button>
+  <div style="text-align:right;margin-top:8px;font-size:13px;color:#666">
+    合计：<b id="po_total" style="color:var(--danger);font-size:16px">¥0.00</b>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="savePurchaseOrder()">保存草稿</button>`);
+  addPOItem();
+}
+function togglePOInvType(){
+  const need=document.getElementById('po_inv_yes')?.checked;
+  const sel=document.getElementById('po_inv_type');
+  if(sel) sel.style.display=need?'inline-block':'none';
+}
+
+let poItemIdx=0;
+function addPOItem(){
+  poItemIdx++;
+  const idx=poItemIdx;
+  const tr=document.createElement('tr');
+  tr.id=`poi_${idx}`;
+  tr.innerHTML=`
+    <td><select id="poi_g_${idx}" onchange="onPOGoodsChange(${idx})" style="width:160px"><option value="">请选择</option>${goodsOpts()}</select></td>
+    <td><input id="poi_spec_${idx}" style="width:70px" placeholder="规格"></td>
+    <td><input id="poi_model_${idx}" style="width:70px" placeholder="型号"></td>
+    <td><input id="poi_unit_${idx}" style="width:50px" value="个"></td>
+    <td><input type="number" id="poi_qty_${idx}" value="1" min="0" oninput="calcPOTotal()" style="width:70px"></td>
+    <td><input type="number" id="poi_price_${idx}" value="0" min="0" oninput="calcPOTotal()" style="width:90px"></td>
+    <td><input type="number" id="poi_tax_${idx}" value="13" min="0" max="100" oninput="calcPOTotal()" style="width:55px"></td>
+    <td id="poi_amt_${idx}" style="text-align:right">¥0.00</td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removePOItem(${idx})">✕</button></td>`;
+  document.getElementById('po_items_body').appendChild(tr);
+}
+function onPOGoodsChange(idx){
+  const sel=document.getElementById(`poi_g_${idx}`);
+  const opt=sel.options[sel.selectedIndex];
+  document.getElementById(`poi_unit_${idx}`).value=opt.dataset.unit||'个';
+  document.getElementById(`poi_price_${idx}`).value=opt.dataset.price||0;
+  document.getElementById(`poi_tax_${idx}`).value=opt.dataset.tax||13;
+  document.getElementById(`poi_spec_${idx}`).value=opt.dataset.spec||'';
+  document.getElementById(`poi_model_${idx}`).value=opt.dataset.model||'';
+  calcPOTotal();
+}
+function removePOItem(idx){document.getElementById(`poi_${idx}`)?.remove();calcPOTotal();}
+async function scanAddPOItem(){
+  const inp=document.getElementById('po_barcode');
+  const code=(inp?.value||'').trim();
+  if(!code) return;
+  try{
+    const g=await get('/goods/scan','code='+encodeURIComponent(code));
+    addPOItem();
+    const idx=poItemIdx;
+    const sel=document.getElementById('poi_g_'+idx);
+    sel.value=String(g.id);
+    onPOGoodsChange(idx);
+    const q=document.getElementById('poi_qty_'+idx);
+    q.focus(); q.select();
+    calcPOTotal();
+    inp.value=''; inp.focus();
+    toast('已添加：'+g.name,'success');
+  }catch(e){
+    toast(e.message||'未找到对应商品','error');
+    inp.value=''; inp.focus();
+  }
+}
+function calcPOTotal(){
+  let total=0;
+  document.querySelectorAll('[id^="poi_qty_"]').forEach(el=>{
+    const idx=el.id.replace('poi_qty_','');
+    const qty=+el.value||0;
+    const price=+(document.getElementById(`poi_price_${idx}`)?.value)||0;
+    const amt=qty*price;
+    total+=amt;
+    const amtEl=document.getElementById(`poi_amt_${idx}`);
+    if(amtEl) amtEl.textContent='¥'+amt.toFixed(2);
+  });
+  const el=document.getElementById('po_total');
+  if(el) el.textContent='¥'+total.toFixed(2);
+}
+async function savePurchaseOrder(){
+  const wid=document.getElementById('po_wh').value;
+  if(!wid){toast('请选择入库仓库','error');return;}
+  const items=[];
+  document.querySelectorAll('[id^="poi_g_"]').forEach(el=>{
+    const idx=el.id.replace('poi_g_','');
+    if(!el.value) return;
+    items.push({
+      goods_id:+el.value,
+      spec:document.getElementById(`poi_spec_${idx}`)?.value||'',
+      model:document.getElementById(`poi_model_${idx}`)?.value||'',
+      unit:document.getElementById(`poi_unit_${idx}`)?.value||'',
+      qty:+(document.getElementById(`poi_qty_${idx}`)?.value)||0,
+      unit_price:+(document.getElementById(`poi_price_${idx}`)?.value)||0,
+      tax_rate:+(document.getElementById(`poi_tax_${idx}`)?.value)||13,
+    });
+  });
+  if(!items.length){toast('请添加商品明细','error');return;}
+  try{
+    const invNeed=document.getElementById('po_inv_yes')?.checked?1:0;
+    const invTypeReq=invNeed?(document.getElementById('po_inv_type')?.value||''):'';
+    const r=await post('/purchase',{
+      supplier_id:+document.getElementById('po_sup').value||null,
+      warehouse_id:+wid,
+      project_id:+document.getElementById('po_proj').value||null,
+      order_date:document.getElementById('po_date').value,
+      business_person:document.getElementById('po_bp').value,
+      remark:document.getElementById('po_rem').value,
+      invoice_need:invNeed,
+      invoice_type_req:invTypeReq,
+      fee: parseFloat(document.getElementById('po_fee')?.value)||0,
+      items
+    });
+    toast(`采购单 ${r.order_no} 已保存`); closeModal(); loadPurchase();
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 销售单（结构与采购单类似）
+// ══════════════════════════════════════
+async function pageSale(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <input id="so_kw" placeholder="单号/客户" style="width:180px">
+    <select id="so_status" style="width:100px">
+      <option value="-1">全部状态</option>
+      <option value="0">草稿</option>
+      <option value="1">待审核</option>
+      <option value="2">已审核</option>
+      <option value="3">已出库</option>
+    </select>
+    <label style="font-size:13px;color:#666">执行人</label><select id="so_op_f" style="width:120px">${userOptsFilter()}</select>
+    <label style="font-size:13px;color:#666">业务人员</label><select id="so_bp_f" style="width:120px">${userOptsFilter()}</select>
+    <button class="btn btn-primary" onclick="loadSale()">🔍 查询</button>
+    <button class="btn" onclick="newSaleOrder()">➕ 新建销售单</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>单据号</th><th>客户</th><th>项目</th><th>仓库</th><th>日期</th>
+    <th>含税金额</th><th>毛利</th><th>发票需求</th><th>状态</th><th>执行人</th><th>业务人员</th><th>操作</th>
+  </tr></thead><tbody id="so-tbody"></tbody></table></div></div>`;
+  loadSale();
+}
+const SO_STATUS={0:'草稿',1:'待审核',2:'已审核',3:'已出库',4:'已关闭'};
+async function loadSale(){
+  const kw=encodeURIComponent(document.getElementById('so_kw').value);
+  const st=document.getElementById('so_status').value;
+  const op=encodeURIComponent(document.getElementById('so_op_f').value);
+  const bp=encodeURIComponent(document.getElementById('so_bp_f').value);
+  const rows=await get('/sale',`keyword=${kw}&status=${st}&operator=${op}&business_person=${bp}`);
+  document.getElementById('so-tbody').innerHTML=rows.length
+    ?rows.map(r=>`<tr>
+      <td><button class="btn-link" onclick="viewSale(${r.id})">${r.order_no}</button></td>
+      <td>${r.customer_name||'-'}</td><td>${r.project_name||'-'}</td>
+      <td>${r.warehouse_name||'-'}</td><td>${fmtDate(r.order_date)}</td>
+      <td>${fmtMoney(r.total_amount)}</td>
+      <td style="color:${r.gross_profit>=0?'#52c41a':'#ff4d4f'}">${r.status==3?fmtMoney(r.gross_profit):'-'}</td>
+      <td>${r.invoice_need?`<span class="tag tag-orange" title="${r.invoice_type_req||''}">🧾 ${r.invoice_type_req||'需开票'}</span>`:'<span style="color:#bbb;font-size:12px">-</span>'}</td>
+      <td>${statusBadge(r.status,SO_STATUS)}</td>
+      <td>${r.operator||'-'}</td>
+      <td>${r.business_person||'-'}</td>
+      <td>
+        ${r.status==0?`<button class="btn-link" onclick="submitSO(${r.id})">提交</button>`:''}
+        ${r.status==1?`<button class="btn-link" onclick="approveSO(${r.id})">审核</button>`:''}
+        ${r.status==2?`<button class="btn-link btn-success" onclick="outstockSO(${r.id})">出库</button>`:''}
+        ${r.status<3?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除？',()=>deleteSO(${r.id}))">删除</button>`:''}
+      </td></tr>`).join('')
+    :'<tr><td colspan="12" class="empty-tip">暂无数据</td></tr>';
+}
+async function submitSO(id){try{await post('/sale/'+id+'/submit');toast('已提交');loadSale();}catch(e){toast(e.message,'error')}}
+async function approveSO(id){try{await post('/sale/'+id+'/approve');toast('审核通过');loadSale();}catch(e){toast(e.message,'error')}}
+async function outstockSO(id){try{await post('/sale/'+id+'/outstock');toast('出库成功');loadSale();}catch(e){toast(e.message,'error')}}
+async function deleteSO(id){try{await del('/sale/'+id);toast('已删除');loadSale();}catch(e){toast(e.message,'error')}}
+
+async function viewSale(id){
+  const d=await get('/sale/'+id);
+  showModal(`销售单详情 - ${d.order_no}`,`
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 16px;margin-bottom:16px;background:#fafafa;padding:12px;border-radius:6px;font-size:13px">
+    <div><label style="color:#888">客户：</label>${d.customer_name||'-'}</div>
+    <div><label style="color:#888">项目：</label>${d.project_name||'-'}</div>
+    <div><label style="color:#888">仓库：</label>${d.warehouse_name||'-'}</div>
+    <div><label style="color:#888">日期：</label>${fmtDate(d.order_date)}</div>
+    <div><label style="color:#888">状态：</label>${SO_STATUS[d.status]}</div>
+    <div><label style="color:#888">执行人：</label>${d.operator||'-'}</div>
+    <div><label style="color:#888">业务人员：</label>${d.business_person||'-'}</div>
+    <div><label style="color:#888">手续费：</label>${d.fee?fmtMoney(d.fee):'-'}</div>
+    <div><label style="color:#888">毛利：</label><span style="color:${d.gross_profit>=0?'#52c41a':'#ff4d4f'}">${fmtMoney(d.gross_profit)}</span></div>
+    <div style="grid-column:span 3;border-top:1px solid #eee;padding-top:8px;margin-top:4px">
+      <label style="color:#888">发票需求：</label>
+      ${d.invoice_need
+        ? `<span class="tag tag-orange">🧾 需要开票</span> <b style="margin-left:8px">${d.invoice_type_req||'类型未指定'}</b>`
+        : '<span style="color:#bbb">无需开票</span>'}
+    </div>
+  </div>
+  <table class="detail-table"><thead><tr>
+    <th>商品</th><th>规格</th><th>型号</th><th>单位</th><th>数量</th><th>含税售价</th><th>成本价</th><th>金额</th>
+  </tr></thead><tbody>
+  ${d.items.map(i=>`<tr>
+    <td>${i.goods_name}</td><td>${i.spec||'-'}</td><td>${i.model||'-'}</td><td>${i.unit}</td>
+    <td>${fmtNum(i.qty)}</td><td>${fmtMoney(i.unit_price)}</td>
+    <td>${d.status==3?fmtMoney(i.cost_price):'-'}</td>
+    <td><b>${fmtMoney(i.total_amount)}</b></td>
+  </tr>`).join('')}
+  </tbody><tfoot><tr>
+    <td colspan="5" style="text-align:right;font-weight:600">合计：</td>
+    <td>${d.status==3?fmtMoney(d.cost_amount):'-'}</td>
+    <td><b style="color:var(--danger)">${fmtMoney(d.total_amount)}</b></td>
+  </tr></tfoot></table>`,
+  `<button class="btn" onclick="closeModal()">关闭</button>`);
+}
+
+function newSaleOrder(){
+  const today=new Date().toISOString().substring(0,10);
+  showModal('新建销售单',`
+  <div class="form-grid" style="margin-bottom:16px">
+    <div class="form-row"><label>客户</label>
+      <select id="so_cust"><option value="">请选择</option>${partnerOpts(2)}</select></div>
+    <div class="form-row"><label>出库仓库*</label>
+      <select id="so_wh"><option value="">请选择</option>${warehouseOpts()}</select></div>
+    <div class="form-row"><label>关联项目</label>
+      <select id="so_proj">${projectOpts()}</select></div>
+    <div class="form-row"><label>销售日期</label>
+      <input type="date" id="so_date" value="${today}"></div>
+    <div class="form-row"><label>执行人</label><input id="so_exec" value="${_session?.display_name||''}" disabled style="background:#f5f5f5;color:#999"></div>
+    <div class="form-row"><label>业务人员</label><select id="so_bp">${userOpts()}</select></div>
+    <div class="form-row"><label>备注</label><input id="so_rem"></div>
+    <div class="form-row"><label>手续费(元)</label><input id="so_fee" type="number" step="0.01" min="0" placeholder="0.00" value="0"></div>
+    <div class="form-row">
+      <label>🧾 发票</label>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap">
+          <input type="radio" name="so_inv_need" id="so_inv_no" value="0" checked onchange="toggleSOInvType()">
+          <span style="font-size:13px">无需</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap">
+          <input type="radio" name="so_inv_need" id="so_inv_yes" value="1" onchange="toggleSOInvType()">
+          <span style="font-size:13px">需要</span>
+        </label>
+        <select id="so_inv_type" style="display:none;height:28px;font-size:13px;border:1px solid #d9d9d9;border-radius:4px;padding:0 6px;color:#333">
+          <option value="增值税发票">增值税专票</option>
+          <option value="普通发票">增值税普通发票</option>
+          <option value="收据">收据</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+    <span style="font-size:13px;color:#666">🔫 扫码录入：</span>
+    <input id="so_barcode" placeholder="扫商品条码/编码自动添加明细" style="width:240px"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();scanAddSOItem()}">
+    <span style="font-size:12px;color:#aaa">（支持扫码枪，扫完自动回车）</span>
+  </div>
+  <div style="font-weight:600;margin-bottom:8px">商品明细</div>
+  <table class="detail-table">
+    <thead><tr><th>商品*</th><th>规格</th><th>型号</th><th>单位</th><th width="80">数量*</th><th width="100">含税售价*</th><th width="60">税率%</th><th width="90">金额</th><th width="40">删</th></tr></thead>
+    <tbody id="so_items_body"></tbody>
+  </table>
+  <button class="btn add-item-btn" onclick="addSOItem()">➕ 添加商品</button>
+  <div style="text-align:right;margin-top:8px;font-size:13px;color:#666">
+    合计：<b id="so_total" style="color:var(--danger);font-size:16px">¥0.00</b>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveSaleOrder()">保存草稿</button>`);
+  addSOItem();
+}
+function toggleSOInvType(){
+  const need=document.getElementById('so_inv_yes')?.checked;
+  const sel=document.getElementById('so_inv_type');
+  if(sel) sel.style.display=need?'inline-block':'none';
+}
+
+let soItemIdx=0;
+function addSOItem(){
+  soItemIdx++;
+  const idx=soItemIdx;
+  const tr=document.createElement('tr');
+  tr.id=`soi_${idx}`;
+  tr.innerHTML=`
+    <td><select id="soi_g_${idx}" onchange="onSOGoodsChange(${idx})" style="width:160px"><option value="">请选择</option>${goodsOpts()}</select></td>
+    <td><input id="soi_spec_${idx}" style="width:70px" placeholder="规格"></td>
+    <td><input id="soi_model_${idx}" style="width:70px" placeholder="型号"></td>
+    <td><input id="soi_unit_${idx}" style="width:50px" value="个"></td>
+    <td><input type="number" id="soi_qty_${idx}" value="1" min="0" oninput="calcSOTotal()" style="width:70px"></td>
+    <td><input type="number" id="soi_price_${idx}" value="0" min="0" oninput="calcSOTotal()" style="width:90px"></td>
+    <td><input type="number" id="soi_tax_${idx}" value="13" oninput="calcSOTotal()" style="width:55px"></td>
+    <td id="soi_amt_${idx}" style="text-align:right">¥0.00</td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeSOItem(${idx})">✕</button></td>`;
+  document.getElementById('so_items_body').appendChild(tr);
+}
+function onSOGoodsChange(idx){
+  const sel=document.getElementById(`soi_g_${idx}`);
+  const opt=sel.options[sel.selectedIndex];
+  document.getElementById(`soi_unit_${idx}`).value=opt.dataset.unit||'个';
+  document.getElementById(`soi_price_${idx}`).value=opt.dataset.sell||0;
+  document.getElementById(`soi_tax_${idx}`).value=opt.dataset.tax||13;
+  document.getElementById(`soi_spec_${idx}`).value=opt.dataset.spec||'';
+  document.getElementById(`soi_model_${idx}`).value=opt.dataset.model||'';
+  calcSOTotal();
+}
+function removeSOItem(idx){document.getElementById(`soi_${idx}`)?.remove();calcSOTotal();}
+async function scanAddSOItem(){
+  const inp=document.getElementById('so_barcode');
+  const code=(inp?.value||'').trim();
+  if(!code) return;
+  try{
+    const g=await get('/goods/scan','code='+encodeURIComponent(code));
+    addSOItem();
+    const idx=soItemIdx;
+    const sel=document.getElementById('soi_g_'+idx);
+    sel.value=String(g.id);
+    onSOGoodsChange(idx);
+    const q=document.getElementById('soi_qty_'+idx);
+    q.focus(); q.select();
+    calcSOTotal();
+    inp.value=''; inp.focus();
+    toast('已添加：'+g.name,'success');
+  }catch(e){
+    toast(e.message||'未找到对应商品','error');
+    inp.value=''; inp.focus();
+  }
+}
+function calcSOTotal(){
+  let total=0;
+  document.querySelectorAll('[id^="soi_qty_"]').forEach(el=>{
+    const idx=el.id.replace('soi_qty_','');
+    const qty=+el.value||0;
+    const price=+(document.getElementById(`soi_price_${idx}`)?.value)||0;
+    const amt=qty*price;
+    total+=amt;
+    const amtEl=document.getElementById(`soi_amt_${idx}`);
+    if(amtEl) amtEl.textContent='¥'+amt.toFixed(2);
+  });
+  const el=document.getElementById('so_total');
+  if(el) el.textContent='¥'+total.toFixed(2);
+}
+async function saveSaleOrder(){
+  const wid=document.getElementById('so_wh').value;
+  if(!wid){toast('请选择出库仓库','error');return;}
+  const items=[];
+  document.querySelectorAll('[id^="soi_g_"]').forEach(el=>{
+    const idx=el.id.replace('soi_g_','');
+    if(!el.value) return;
+    items.push({
+      goods_id:+el.value,
+      spec:document.getElementById(`soi_spec_${idx}`)?.value||'',
+      model:document.getElementById(`soi_model_${idx}`)?.value||'',
+      unit:document.getElementById(`soi_unit_${idx}`)?.value||'',
+      qty:+(document.getElementById(`soi_qty_${idx}`)?.value)||0,
+      unit_price:+(document.getElementById(`soi_price_${idx}`)?.value)||0,
+      tax_rate:+(document.getElementById(`soi_tax_${idx}`)?.value)||13,
+    });
+  });
+  if(!items.length){toast('请添加商品明细','error');return;}
+  try{
+    const invNeed=document.getElementById('so_inv_yes')?.checked?1:0;
+    const invTypeReq=invNeed?(document.getElementById('so_inv_type')?.value||''):'';
+    const r=await post('/sale',{
+      customer_id:+document.getElementById('so_cust').value||null,
+      warehouse_id:+wid,
+      project_id:+document.getElementById('so_proj').value||null,
+      order_date:document.getElementById('so_date').value,
+      business_person:document.getElementById('so_bp').value,
+      remark:document.getElementById('so_rem').value,
+      invoice_need:invNeed,
+      invoice_type_req:invTypeReq,
+      fee: parseFloat(document.getElementById('so_fee')?.value)||0,
+      items
+    });
+    toast(`销售单 ${r.order_no} 已保存`); closeModal(); loadSale();
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 耗材领用
+// ══════════════════════════════════════
+async function pageRequisition(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <select id="mq_proj" style="width:160px">
+      <option value="-1">全部项目</option>
+      ${_projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+    </select>
+    <select id="mq_status" style="width:100px">
+      <option value="-1">全部状态</option>
+      <option value="0">草稿</option>
+      <option value="3">已出库</option>
+    </select>
+    <label style="font-size:13px;color:#666">执行人</label><select id="mq_op_f" style="width:120px">${userOptsFilter()}</select>
+    <label style="font-size:13px;color:#666">业务人员</label><select id="mq_bp_f" style="width:120px">${userOptsFilter()}</select>
+    <button class="btn btn-primary" onclick="loadReq()">🔍 查询</button>
+    <button class="btn" onclick="newReqOrder()">➕ 新建领用单</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>单据号</th><th>项目</th><th>仓库</th><th>执行人</th><th>业务人员(领用人)</th><th>日期</th><th>总成本</th><th>状态</th><th>操作</th>
+  </tr></thead><tbody id="mq-tbody"></tbody></table></div></div>`;
+  loadReq();
+}
+const REQ_STATUS={0:'草稿',1:'已提交',2:'已审批',3:'已出库'};
+async function loadReq(){
+  const proj=document.getElementById('mq_proj').value;
+  const st=document.getElementById('mq_status').value;
+  const op=encodeURIComponent(document.getElementById('mq_op_f').value);
+  const bp=encodeURIComponent(document.getElementById('mq_bp_f').value);
+  const rows=await get('/requisition',`project_id=${proj}&status=${st}&operator=${op}&business_person=${bp}`);
+  document.getElementById('mq-tbody').innerHTML=rows.length
+    ?rows.map(r=>`<tr>
+      <td>${r.order_no}</td><td>${r.project_name||'-'}</td>
+      <td>${r.warehouse_name||'-'}</td><td>${r.operator||'-'}</td>
+      <td>${r.applicant||'-'}</td>
+      <td>${fmtDate(r.req_date)}</td>
+      <td>${r.status==3?fmtMoney(r.total_cost):'-'}</td>
+      <td>${statusBadge(r.status,REQ_STATUS)}</td>
+      <td>
+        ${r.status<3?`<button class="btn-link btn-success" onclick="outstockReq(${r.id})">出库</button>`:''}
+      </td></tr>`).join('')
+    :'<tr><td colspan="8" class="empty-tip">暂无数据</td></tr>';
+}
+async function outstockReq(id){
+  try{await post('/requisition/'+id+'/outstock');toast('出库成功');loadReq();}catch(e){toast(e.message,'error')}
+}
+function newReqOrder(){
+  const today=new Date().toISOString().substring(0,10);
+  showModal('新建耗材领用单',`
+  <div class="form-grid" style="margin-bottom:16px">
+    <div class="form-row"><label>关联项目*</label>
+      <select id="mq_p"><option value="">请选择</option>
+      ${_projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select></div>
+    <div class="form-row"><label>领用仓库*</label>
+      <select id="mq_w"><option value="">请选择</option>${warehouseOpts()}</select></div>
+    <div class="form-row"><label>领用日期</label>
+      <input type="date" id="mq_d" value="${today}"></div>
+    <div class="form-row"><label>执行人</label><input id="mq_exec" value="${_session?.display_name||''}" disabled style="background:#f5f5f5;color:#999"></div>
+    <div class="form-row"><label>业务人员(领用人)</label><select id="mq_a">${userOpts()}</select></div>
+    <div class="form-row" style="grid-column:span 2"><label>备注</label><input id="mq_rem"></div>
+  </div>
+  <div style="font-weight:600;margin-bottom:8px">领用明细</div>
+  <datalist id="req_unit_datalist">${_units.map(u=>`<option value="${u.name}">`).join('')}</datalist>
+  <table class="detail-table">
+    <thead><tr><th>商品*</th><th>单位</th><th width="100">数量*</th><th width="40">删</th></tr></thead>
+    <tbody id="mq_items_body"></tbody>
+  </table>
+  <button class="btn add-item-btn" onclick="addMQItem()">➕ 添加商品</button>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveReqOrder()">保存</button>`);
+  addMQItem();
+}
+let mqItemIdx=0;
+function addMQItem(){
+  mqItemIdx++;
+  const idx=mqItemIdx;
+  const tr=document.createElement('tr');
+  tr.id=`mqi_${idx}`;
+  tr.innerHTML=`
+    <td><select id="mqi_g_${idx}" onchange="onMQGoodsChange(${idx})" style="width:200px"><option value="">请选择</option>${goodsOpts()}</select></td>
+    <td><input id="mqi_u_${idx}" list="req_unit_datalist" style="width:72px" value="个"></td>
+    <td><input type="number" id="mqi_q_${idx}" value="1" min="0" style="width:80px"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="document.getElementById('mqi_${idx}').remove()">✕</button></td>`;
+  document.getElementById('mq_items_body').appendChild(tr);
+}
+function onMQGoodsChange(idx){
+  const sel=document.getElementById(`mqi_g_${idx}`);
+  const opt=sel.options[sel.selectedIndex];
+  document.getElementById(`mqi_u_${idx}`).value=opt.dataset.unit||'个';
+}
+async function saveReqOrder(){
+  const pid=document.getElementById('mq_p').value;
+  const wid=document.getElementById('mq_w').value;
+  if(!pid){toast('请选择项目','error');return;}
+  if(!wid){toast('请选择仓库','error');return;}
+  const items=[];
+  document.querySelectorAll('[id^="mqi_g_"]').forEach(el=>{
+    const idx=el.id.replace('mqi_g_','');
+    if(!el.value) return;
+    items.push({goods_id:+el.value,unit:document.getElementById(`mqi_u_${idx}`)?.value||'',
+      qty:+(document.getElementById(`mqi_q_${idx}`)?.value)||0});
+  });
+  if(!items.length){toast('请添加商品明细','error');return;}
+  try{
+    const r=await post('/requisition',{project_id:+pid,warehouse_id:+wid,
+      req_date:document.getElementById('mq_d').value,
+      applicant:document.getElementById('mq_a').value,
+      remark:document.getElementById('mq_rem').value, items});
+    toast(`领用单 ${r.order_no} 已保存`); closeModal(); loadReq();
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 库存台账
+// ══════════════════════════════════════
+async function pageInventory(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <input id="inv_kw" placeholder="商品名/编码" style="width:180px">
+    <select id="inv_wh" style="width:120px">
+      <option value="-1">全部仓库</option>${warehouseOpts()}
+    </select>
+    <select id="inv_proj" style="width:140px">
+      <option value="-1">全部项目</option>
+      <option value="0">公共库存</option>
+      ${_projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+    </select>
+    <button class="btn btn-primary" onclick="loadInventory()">🔍 查询</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>商品编码</th><th>商品名称</th><th>规格</th><th>型号</th><th>仓库</th><th>项目</th>
+    <th>库存数量</th><th>单位</th><th>加权均价</th><th>库存价值</th><th>状态</th>
+  </tr></thead><tbody id="inv-tbody"></tbody></table></div></div>`;
+  loadInventory();
+}
+async function loadInventory(){
+  const kw=document.getElementById('inv_kw').value;
+  const wid=document.getElementById('inv_wh').value;
+  const pid=document.getElementById('inv_proj').value;
+  const rows=await get('/inventory',`keyword=${kw}&warehouse_id=${wid}&project_id=${pid}`);
+  document.getElementById('inv-tbody').innerHTML=rows.length
+    ?rows.map(r=>{
+      let alert='';
+      if(r.stock_min>0&&r.qty<=r.stock_min) alert='<span class="tag tag-red">预警</span>';
+      else if(r.qty<=0) alert='<span class="tag tag-orange">零库存</span>';
+      return `<tr>
+        <td>${r.goods_code}</td><td><b>${r.goods_name}</b></td>
+        <td>${r.spec||'-'}</td><td>${r.model||'-'}</td><td>${r.warehouse_name}</td>
+        <td>${r.project_name||'公共'}</td>
+        <td><b style="color:${r.qty<=0?'#ff4d4f':r.qty<=r.stock_min&&r.stock_min>0?'#fa8c16':'#333'}">${fmtNum(r.qty)}</b></td>
+        <td>${r.unit}</td><td>${fmtMoney(r.avg_cost)}</td>
+        <td>${fmtMoney(r.total_cost)}</td>
+        <td>${alert||'<span class="tag tag-green">正常</span>'}</td>
+      </tr>`;
+    }).join('')
+    :'<tr><td colspan="10" class="empty-tip">暂无库存数据</td></tr>';
+}
+
+// ══════════════════════════════════════
+// 库存预警
+// ══════════════════════════════════════
+async function pageAlert(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+    <div style="margin-bottom:12px;color:#ff4d4f;font-weight:600">⚠️ 以下商品库存已低于安全下限，请及时补货</div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>商品名称</th><th>规格</th><th>仓库</th><th>项目</th>
+      <th>当前库存</th><th>安全下限</th><th>缺口</th><th>单位</th>
+    </tr></thead><tbody id="alert-tbody"></tbody></table></div>
+  </div>`;
+  const rows=await get('/inventory','alert=1');
+  document.getElementById('alert-tbody').innerHTML=rows.length
+    ?rows.map(r=>`<tr style="background:#fff2f0">
+      <td><b>${r.goods_name}</b></td><td>${r.spec||'-'}</td>
+      <td>${r.warehouse_name}</td><td>${r.project_name||'公共'}</td>
+      <td style="color:#ff4d4f;font-weight:700">${fmtNum(r.qty)}</td>
+      <td>${fmtNum(r.stock_min)}</td>
+      <td style="color:#ff4d4f">-${fmtNum(r.stock_min-r.qty)}</td>
+      <td>${r.unit}</td></tr>`).join('')
+    :'<tr><td colspan="8" class="empty-tip" style="color:#52c41a">✅ 所有商品库存正常</td></tr>';
+}
+
+// ══════════════════════════════════════
+// 库存流水
+// ══════════════════════════════════════
+async function pageLogs(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <input id="log_kw" placeholder="商品名/单据号" style="width:160px">
+    <select id="log_type" style="width:100px">
+      <option value="">全部类型</option>
+      <option value="purchase">采购入库</option>
+      <option value="sale">销售出库</option>
+      <option value="requisition">耗材领用</option>
+      <option value="check">库存盘点</option>
+    </select>
+    <input type="date" id="log_df" style="width:130px">
+    <input type="date" id="log_dt" style="width:130px">
+    <button class="btn btn-primary" onclick="loadLogs()">🔍 查询</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>时间</th><th>商品</th><th>仓库</th><th>项目</th>
+    <th>类型</th><th>方向</th><th>数量</th><th>前库存</th><th>后库存</th><th>成本价</th><th>单据号</th>
+  </tr></thead><tbody id="log-tbody"></tbody></table></div></div>`;
+  loadLogs();
+}
+const BIZ_TYPE={purchase:'采购入库',sale:'销售出库',requisition:'耗材领用',check:'库存盘点',adjust:'手工调整'};
+async function loadLogs(){
+  const kw=document.getElementById('log_kw').value;
+  const bt=document.getElementById('log_type').value;
+  const df=document.getElementById('log_df').value;
+  const dt=document.getElementById('log_dt').value;
+  const rows=await get('/inventory/logs',`keyword=${kw}&biz_type=${bt}&date_from=${df}&date_to=${dt}`);
+  document.getElementById('log-tbody').innerHTML=rows.length
+    ?rows.map(r=>`<tr>
+      <td style="font-size:12px">${fmtDate(r.created_at)}</td>
+      <td>${r.goods_name}</td><td>${r.warehouse_name||'-'}</td>
+      <td>${r.project_name||'公共'}</td>
+      <td><span class="tag ${r.direction==1?'tag-green':'tag-red'}">${BIZ_TYPE[r.biz_type]||r.biz_type}</span></td>
+      <td style="color:${r.direction==1?'#52c41a':'#ff4d4f'};font-weight:700">${r.direction==1?'▲入库':'▼出库'}</td>
+      <td><b>${fmtNum(r.qty)}</b></td>
+      <td>${fmtNum(r.before_qty)}</td><td>${fmtNum(r.after_qty)}</td>
+      <td>${fmtMoney(r.cost_price)}</td>
+      <td style="font-size:12px;color:#888">${r.biz_order_no||'-'}</td>
+    </tr>`).join('')
+    :'<tr><td colspan="11" class="empty-tip">暂无流水记录</td></tr>';
+}
+
+// ══════════════════════════════════════
+// 库存盘点
+// ══════════════════════════════════════
+async function pageCheck(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <label style="font-size:13px;color:#666">执行人</label><select id="ck_op_f" style="width:120px">${userOptsFilter()}</select>
+    <label style="font-size:13px;color:#666">业务人员</label><select id="ck_bp_f" style="width:120px">${userOptsFilter()}</select>
+    <button class="btn btn-primary" onclick="loadChecks()">🔍 查询</button>
+    <button class="btn" onclick="newCheck()">➕ 新建盘点单</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>盘点单号</th><th>仓库</th><th>盘点日期</th><th>状态</th><th>执行人</th><th>业务人员</th><th>操作</th>
+  </tr></thead><tbody id="check-tbody"></tbody></table></div></div>`;
+  loadChecks();
+}
+const CHECK_STATUS={0:'草稿',1:'盘点中',2:'已完成'};
+async function loadChecks(){
+  const op=encodeURIComponent(document.getElementById('ck_op_f').value);
+  const bp=encodeURIComponent(document.getElementById('ck_bp_f').value);
+  const rows=await get('/check',`operator=${op}&business_person=${bp}`);
+  document.getElementById('check-tbody').innerHTML=rows.length
+    ?rows.map(r=>`<tr>
+      <td>${r.check_no}</td><td>${r.warehouse_name||'-'}</td>
+      <td>${fmtDate(r.check_date)}</td>
+      <td>${statusBadge(r.status,CHECK_STATUS)}</td>
+      <td>${r.operator||'-'}</td>
+      <td>${r.business_person||'-'}</td>
+      <td>
+        <button class="btn-link" onclick="viewCheck(${r.id})">查看明细</button>
+        ${(r.status==0||r.status==1)?`<button class="btn-link btn-success" onclick="confirmCheck(${r.id})">审核</button>`:''}
+        ${r.status==2?`<button class="btn-link" onclick="doUnapprove('check',${r.id})">反审核</button><button class="btn-link" style="color:var(--danger)" onclick="doVoid('check',${r.id})">作废</button>`:''}
+        ${r.status==3?`<button class="btn-link" onclick="doUnapprove('check',${r.id})">反审核</button>`:''}
+      </td></tr>`).join('')
+    :'<tr><td colspan="7" class="empty-tip">暂无盘点记录</td></tr>';
+}
+function newCheck(){
+  const today=new Date().toISOString().substring(0,10);
+  showModal('新建盘点单',`
+  <div class="form-grid-2">
+    <div class="form-row"><label>盘点仓库*</label>
+      <select id="ck_wh"><option value="">请选择</option>${warehouseOpts()}</select></div>
+    <div class="form-row"><label>盘点日期</label>
+      <input type="date" id="ck_date" value="${today}"></div>
+    <div class="form-row"><label>执行人</label><input id="ck_exec" value="${_session?.display_name||''}" disabled style="background:#f5f5f5;color:#999"></div>
+    <div class="form-row"><label>业务人员</label><select id="ck_bp">${userOpts()}</select></div>
+    <div class="form-row"><label>备注</label><input id="ck_rem"></div>
+  </div>
+  <p style="margin-top:12px;color:#888;font-size:13px">💡 创建后将自动生成该仓库的商品清单，录入实盘数量后确认。</p>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveCheck()">创建盘点</button>`);
+}
+async function saveCheck(){
+  const wid=document.getElementById('ck_wh').value;
+  if(!wid){toast('请选择仓库','error');return;}
+  try{
+    const r=await post('/check',{warehouse_id:+wid,
+      check_date:document.getElementById('ck_date').value,
+      business_person:document.getElementById('ck_bp').value,
+      remark:document.getElementById('ck_rem').value});
+    toast('盘点单已创建'); closeModal();
+    loadChecks(); viewCheck(r.id);
+  }catch(e){toast(e.message,'error')}
+}
+async function viewCheck(id){
+  const d=await get('/check/'+id);
+  showModal(`盘点单 - ${d.check_no}`,`
+  <p style="margin-bottom:12px;color:#888;font-size:13px">仓库：${d.warehouse_name||'-'} | 日期：${fmtDate(d.check_date)} | 状态：${CHECK_STATUS[d.status]} | 执行人：${d.operator||'-'} | 业务人员：${d.business_person||'-'}</p>
+  <table class="detail-table">
+    <thead><tr><th>商品</th><th>单位</th><th>系统库存</th><th width="100">实盘数量</th><th>差异</th><th>差异金额</th></tr></thead>
+    <tbody>
+    ${d.items.map(i=>`<tr>
+      <td>${i.goods_name}</td><td>${i.unit}</td>
+      <td>${fmtNum(i.system_qty)}</td>
+      <td><input type="number" id="ci_${i.id}" value="${i.actual_qty}" ${d.status==2?'disabled':''} oninput="updateCheckDiff(${i.id},${i.system_qty},${i.cost_price})" style="width:90px;padding:3px 6px;border:1px solid #d9d9d9;border-radius:4px"></td>
+      <td id="cd_${i.id}" style="color:${i.diff_qty>0?'#52c41a':i.diff_qty<0?'#ff4d4f':'#333'}">${i.diff_qty>0?'+':''}${fmtNum(i.diff_qty)}</td>
+      <td id="cda_${i.id}">${fmtMoney(i.diff_amount)}</td>
+    </tr>`).join('')}
+    </tbody>
+  </table>`,
+  d.status==2
+    ?`<button class="btn" onclick="closeModal()">关闭</button>`
+    :`<button class="btn" onclick="closeModal()">关闭</button>
+      <button class="btn btn-primary" onclick="saveCheckItems(${id})">保存数量</button>`);
+}
+function updateCheckDiff(iid,sysQty,costPrice){
+  const actual=+(document.getElementById('ci_'+iid).value)||0;
+  const diff=actual-sysQty;
+  const diffAmt=diff*costPrice;
+  const de=document.getElementById('cd_'+iid);
+  const dae=document.getElementById('cda_'+iid);
+  if(de) {de.textContent=(diff>0?'+':'')+diff.toFixed(2); de.style.color=diff>0?'#52c41a':diff<0?'#ff4d4f':'#333';}
+  if(dae) dae.textContent=fmtMoney(diffAmt);
+}
+async function saveCheckItems(checkId){
+  const d=await get('/check/'+checkId);
+  const items=d.items.map(i=>{
+    const actual=+(document.getElementById('ci_'+i.id)?.value)||0;
+    return{id:i.id,actual_qty:actual,system_qty:i.system_qty,cost_price:i.cost_price};
+  });
+  try{
+    await put('/check/'+checkId+'/items',items);
+    toast('保存成功');
+  }catch(e){toast(e.message,'error')}
+}
+async function confirmCheck(id){
+  confirm2('确认完成盘点并调整库存？此操作不可撤销！',async()=>{
+    try{await post('/check/'+id+'/confirm');toast('盘点完成，库存已调整');loadChecks();closeModal();}
+    catch(e){toast(e.message,'error')}
+  });
+}
+
+// ══════════════════════════════════════
+// 发票
+// ══════════════════════════════════════
+function pageInvIn(){pageInvoices(1)}
+function pageInvOut(){pageInvoices(2)}
+async function pageInvoices(dir){
+  const c=document.getElementById('content');
+  const title=dir==1?'进项发票':'出项发票';
+  const pendingOrderType=dir==1?'purchase':'sale';
+  c.innerHTML=`<div class="card">
+  <!-- 标签页切换 -->
+  <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #f0f0f0">
+    <button id="ivtab_list" class="tab-btn tab-btn-active" onclick="switchInvTab('list',${dir})" style="padding:8px 20px;border:none;background:none;font-size:14px;cursor:pointer;border-bottom:2px solid var(--primary);margin-bottom:-2px;color:var(--primary);font-weight:600">📋 发票台账</button>
+    <button id="ivtab_pending" class="tab-btn" onclick="switchInvTab('pending',${dir})" style="padding:8px 20px;border:none;background:none;font-size:14px;cursor:pointer;color:#666">🕐 待开票单据 <span id="pending_badge" style="display:inline-block;background:#ff4d4f;color:#fff;border-radius:10px;font-size:11px;padding:0 6px;margin-left:4px"></span></button>
+  </div>
+  <!-- 台账区 -->
+  <div id="ivpanel_list">
+  <div class="search-bar">
+    <input id="iv_kw" placeholder="发票号/单位名" style="width:160px">
+    <select id="iv_status" style="width:100px">
+      <option value="">全部状态</option>
+      <option value="待开具">待开具</option>
+      <option value="已开具">已开具</option>
+      <option value="已认证">已认证</option>
+      <option value="已作废">已作废</option>
+    </select>
+    <input type="date" id="iv_df" style="width:130px">
+    <input type="date" id="iv_dt" style="width:130px">
+    <button class="btn btn-primary" onclick="loadInvoices(${dir})">🔍 查询</button>
+    <button class="btn" onclick="editInvoice(null,${dir})">➕ 录入${title}</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>发票号码</th><th>发票类型</th>
+    <th>${dir==1?'销售方':'购买方'}</th><th>项目</th>
+    <th>开票日期</th><th>税率</th><th>不含税金额</th><th>税额</th>
+    <th>价税合计</th><th>状态</th><th>操作</th>
+  </tr></thead><tbody id="iv-tbody"></tbody></table>
+  <div style="margin-top:12px;background:#fafafa;padding:10px 16px;border-radius:6px;font-size:13px;color:#666" id="iv-summary"></div>
+  </div>
+  </div>
+  <!-- 待开票单据区 -->
+  <div id="ivpanel_pending" style="display:none">
+    <div class="search-bar" style="margin-bottom:12px">
+      <input id="iv_pending_kw" placeholder="单号/往来单位" style="width:200px">
+      <button class="btn btn-primary" onclick="loadPendingInvoice('${pendingOrderType}')">🔍 查询</button>
+    </div>
+    <div id="pending-summary" style="margin-bottom:10px"></div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>单号</th><th>类型</th><th>往来单位</th><th>项目</th><th>单据日期</th>
+      <th>单据金额</th><th>已开票金额</th><th>待开金额</th><th>发票类型需求</th><th>单据状态</th>
+    </tr></thead><tbody id="pending-tbody"></tbody></table></div>
+  </div>
+  </div>`;
+  loadInvoices(dir);
+  loadPendingInvoice(pendingOrderType);
+}
+
+function switchInvTab(tab, dir){
+  document.getElementById('ivpanel_list').style.display=tab==='list'?'':'none';
+  document.getElementById('ivpanel_pending').style.display=tab==='pending'?'':'none';
+  document.getElementById('ivtab_list').style.cssText=
+    tab==='list'?'padding:8px 20px;border:none;background:none;font-size:14px;cursor:pointer;border-bottom:2px solid var(--primary);margin-bottom:-2px;color:var(--primary);font-weight:600'
+    :'padding:8px 20px;border:none;background:none;font-size:14px;cursor:pointer;color:#666';
+  document.getElementById('ivtab_pending').style.cssText=
+    tab==='pending'?'padding:8px 20px;border:none;background:none;font-size:14px;cursor:pointer;border-bottom:2px solid var(--primary);margin-bottom:-2px;color:var(--primary);font-weight:600'
+    :'padding:8px 20px;border:none;background:none;font-size:14px;cursor:pointer;color:#666';
+}
+
+const ORDER_STATUS_MAP={0:'草稿',1:'待审核',2:'已审核',3:'已入/出库',4:'已关闭'};
+async function loadPendingInvoice(orderType){
+  const kw=document.getElementById('iv_pending_kw')?.value||'';
+  const rows=await get('/orders/pending-invoice',`order_type=${orderType}&keyword=${encodeURIComponent(kw)}`);
+  // 更新徽章
+  const badge=document.getElementById('pending_badge');
+  if(badge) badge.textContent=rows.length>0?rows.length:'';
+
+  const unfinished=rows.filter(r=>r.remaining_amount>0.01);
+  const sumEl=document.getElementById('pending-summary');
+  if(sumEl) sumEl.innerHTML=`<div style="background:#fff7e6;border:1px solid #ffd591;border-radius:6px;padding:8px 16px;font-size:13px">
+    共 <b>${rows.length}</b> 条需要开票的单据，其中 <b style="color:var(--danger)">${unfinished.length}</b> 条未开完
+    （待开金额合计：<b style="color:var(--danger)">${fmtMoney(unfinished.reduce((s,r)=>s+r.remaining_amount,0))}</b>）
+  </div>`;
+
+  const INV_TYPE_TAG={
+    '增值税发票':'<span class="tag" style="background:#e6f7ff;color:#1890ff;border:1px solid #91d5ff">增值税专票</span>',
+    '普通发票':'<span class="tag tag-green">普通发票</span>',
+    '收据':'<span class="tag" style="background:#f9f0ff;color:#722ed1;border:1px solid #d3adf7">收据</span>',
+  };
+  const tbody=document.getElementById('pending-tbody');
+  if(!tbody) return;
+  tbody.innerHTML=rows.length?rows.map(r=>`<tr style="${r.remaining_amount<=0.01?'opacity:0.5':''}">
+    <td><b>${r.order_no}</b></td>
+    <td>${r.order_type_name}</td>
+    <td>${r.partner_name||'-'}</td>
+    <td>${r.project_name||'-'}</td>
+    <td>${fmtDate(r.order_date)}</td>
+    <td>${fmtMoney(r.total_amount)}</td>
+    <td>${fmtMoney(r.invoiced_amount||0)}</td>
+    <td><b style="color:${r.remaining_amount>0.01?'var(--danger)':'var(--success)'}">${fmtMoney(r.remaining_amount)}</b></td>
+    <td>${INV_TYPE_TAG[r.invoice_type_req]||`<span class="tag">${r.invoice_type_req||'未指定'}</span>`}</td>
+    <td><span class="tag">${ORDER_STATUS_MAP[r.order_status]||'-'}</span></td>
+  </tr>`).join(''):'<tr><td colspan="10" class="empty-tip">🎉 暂无待开票单据</td></tr>';
+}
+
+async function loadInvoices(dir){
+  const kw=document.getElementById('iv_kw').value;
+  const st=document.getElementById('iv_status').value;
+  const df=document.getElementById('iv_df').value;
+  const dt=document.getElementById('iv_dt').value;
+  const rows=await get('/invoices',`direction=${dir}&keyword=${kw}&status=${st}&date_from=${df}&date_to=${dt}`);
+  const IVST={待开具:'tag-orange',已开具:'tag-green',已认证:'tag-blue',已作废:'tag-red'};
+  document.getElementById('iv-tbody').innerHTML=rows.length
+    ?rows.map(r=>`<tr>
+      <td>${r.invoice_no||'-'}</td><td>${r.invoice_type||'-'}</td>
+      <td>${r.partner_name||'-'}</td><td>${r.project_name||'-'}</td>
+      <td>${fmtDate(r.invoice_date)}</td><td>${r.tax_rate}%</td>
+      <td>${fmtMoney(r.untax_amount)}</td><td>${fmtMoney(r.tax_amount)}</td>
+      <td><b>${fmtMoney(r.total_amount)}</b></td>
+      <td><span class="tag ${IVST[r.status]||''}">${r.status}</span></td>
+      <td>
+        ${r.image_path?`<button class="btn-link" onclick="ivPreview(${r.id})">🖼图</button>`:''}
+        ${r.audit_status===0?`<button class="btn-link" onclick="editInvoice(${r.id},${dir})">编辑</button>`:''}
+        ${r.audit_status===0?`<button class="btn-link btn-success" onclick="doApprove('invoice',${r.id})">审核</button>`:''}
+        ${r.audit_status===0?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('删除此发票？',()=>delInvoice(${r.id},${dir}))">删除</button>`:''}
+        ${r.audit_status===1?`<button class="btn-link" onclick="doUnapprove('invoice',${r.id})">反审核</button><button class="btn-link" style="color:var(--danger)" onclick="doVoid('invoice',${r.id})">作废</button>`:''}
+        ${r.audit_status===2?`<button class="btn-link" onclick="doUnapprove('invoice',${r.id})">反审核</button>`:''}
+      </td></tr>`).join('')
+    :'<tr><td colspan="11" class="empty-tip">暂无发票记录</td></tr>';
+  // 汇总
+  const total=rows.reduce((a,r)=>a+r.total_amount,0);
+  const tax=rows.reduce((a,r)=>a+r.tax_amount,0);
+  document.getElementById('iv-summary').innerHTML=
+    `共 <b>${rows.length}</b> 张发票 | 价税合计：<b style="color:var(--danger)">${fmtMoney(total)}</b> | 税额合计：<b>${fmtMoney(tax)}</b>`;
+}
+async function editInvoice(id=null,dir=1){
+  let iv={invoice_no:'',invoice_code:'',invoice_type:'增值税普通发票',direction:dir,
+    project_id:0,partner_id:null,invoice_date:new Date().toISOString().substring(0,10),
+    tax_rate:13,untax_amount:0,tax_amount:0,total_amount:0,status:'已开具',remark:''};
+  if(id){
+    const d=await get('/invoices/'+id);
+    Object.assign(iv,d);
+  }
+  const today=new Date().toISOString().substring(0,10);
+  showModal((id?'编辑':'录入')+(dir==1?'进项':'出项')+'发票',`
+  <div class="form-grid">
+    <div class="form-row" style="grid-column:1/-1">
+      <label>发票图片/PDF</label>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input type="file" id="iv_img" accept="image/*,.pdf,application/pdf" onchange="ivOnImage(this)">
+        <button type="button" class="btn" id="iv_rec_btn" onclick="ivRecognize()" disabled>识别</button>
+        <span id="iv_rec_hint" style="color:#888;font-size:12px"></span>
+      </div>
+      <div id="iv_img_prev" style="margin-top:8px"></div>
+    </div>
+    <div class="form-row"><label>发票号码</label><input id="iv_no" value="${iv.invoice_no||''}"></div>
+    <div class="form-row"><label>发票代码</label><input id="iv_code" value="${iv.invoice_code||''}"></div>
+    <div class="form-row"><label>发票类型</label>
+      <select id="iv_type">
+        <option value="增值税普通发票" ${iv.invoice_type=='增值税普通发票'?'selected':''}>增值税普通发票</option>
+        <option value="增值税专用发票" ${iv.invoice_type=='增值税专用发票'?'selected':''}>增值税专用发票</option>
+        <option value="电子发票" ${iv.invoice_type=='电子发票'?'selected':''}>电子发票</option>
+        <option value="收据" ${iv.invoice_type=='收据'?'selected':''}>收据</option>
+      </select>
+    </div>
+    <div class="form-row"><label>${dir==1?'销售方':'购买方'}</label>
+      <select id="iv_partner"><option value="">请选择</option>${partnerOpts(-1,iv.partner_id)}</select></div>
+    <div class="form-row"><label>关联项目</label>
+      <select id="iv_proj">
+        <option value="0">无</option>
+        ${_projects.map(p=>`<option value="${p.id}" ${iv.project_id==p.id?'selected':''}>${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row"><label>开票日期</label>
+      <input type="date" id="iv_date" value="${iv.invoice_date||today}"></div>
+    <div class="form-row"><label>税率(%)</label>
+      <input type="number" id="iv_taxrate" value="${iv.tax_rate}" oninput="calcInvAmt()"></div>
+    <div class="form-row"><label>不含税金额</label>
+      <input type="number" id="iv_untax" value="${iv.untax_amount}" oninput="calcInvAmt()"></div>
+    <div class="form-row"><label>税额</label>
+      <input type="number" id="iv_tax" value="${iv.tax_amount}" oninput="calcInvTotal()"></div>
+    <div class="form-row"><label>价税合计</label>
+      <input type="number" id="iv_total" value="${iv.total_amount}"></div>
+    <div class="form-row"><label>发票状态</label>
+      <select id="iv_st">
+        <option value="待开具" ${iv.status=='待开具'?'selected':''}>待开具</option>
+        <option value="已开具" ${iv.status=='已开具'?'selected':''}>已开具</option>
+        <option value="已认证" ${iv.status=='已认证'?'selected':''}>已认证</option>
+      </select>
+    </div>
+    <div class="form-row"><label>备注</label><input id="iv_rem" value="${iv.remark||''}"></div>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveInvoice(${id||'null'},${dir})">保存</button>`);
+  // 图片：已有则展示，新上传覆盖
+  _ivNewImg = iv.image_path||'';
+  _ivNewOcr = iv.ocr_raw||'';
+  const _prev = document.getElementById('iv_img_prev');
+  if(iv.image_path && id){
+    const isPdf=/\.pdf$/i.test(iv.image_path);
+    if(isPdf){
+      _prev.innerHTML=`<a href="${API}/invoices/image/${id}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;color:#1a73e8;text-decoration:none"><span style="font-size:24px">📄</span>查看PDF发票</a>`;
+    }else{
+      _prev.innerHTML = `<img src="${API}/invoices/image/${id}" style="max-width:180px;max-height:140px;border:1px solid #ddd;border-radius:6px">`;
+    }
+  }
+}
+let _ivNewImg='', _ivNewOcr='';
+function ivOnImage(input){
+  const btn=document.getElementById('iv_rec_btn');
+  const prev=document.getElementById('iv_img_prev');
+  const hint=document.getElementById('iv_rec_hint');
+  if(input.files && input.files[0]){
+    btn.disabled=false;
+    const f=input.files[0];
+    const isPdf=/\.pdf$/i.test(f.name)||f.type==='application/pdf';
+    if(isPdf){
+      prev.innerHTML=`<div style="display:flex;align-items:center;gap:8px;color:#555"><span style="font-size:28px">📄</span><span>已选择 PDF：${f.name}</span></div>`;
+    }else{
+      const url=URL.createObjectURL(f);
+      prev.innerHTML=`<img src="${url}" style="max-width:180px;max-height:140px;border:1px solid #ddd;border-radius:6px">`;
+    }
+    hint.textContent='已选择，点击「识别」自动填单';
+  }else{
+    btn.disabled=true; prev.innerHTML='';
+  }
+}
+async function ivRecognize(){
+  const input=document.getElementById('iv_img');
+  if(!input.files||!input.files[0]){toast('请先选择图片','error');return;}
+  const btn=document.getElementById('iv_rec_btn');
+  const hint=document.getElementById('iv_rec_hint');
+  btn.disabled=true; hint.textContent='识别中…';
+  try{
+    const fd=new FormData();
+    fd.append('file',input.files[0]);
+    const r=await fetch(API+'/invoices/upload',{method:'POST',headers:{'X-Token':getToken()},body:fd});
+    if(!r.ok){const e=await r.json().catch(()=>({detail:'识别失败'}));throw new Error(e.detail||'识别失败');}
+    const d=await r.json();
+    _ivNewImg=d.image_path||'';
+    _ivNewOcr=d.raw||'';
+    if(d.invoice_no) document.getElementById('iv_no').value=d.invoice_no;
+    if(d.invoice_code) document.getElementById('iv_code').value=d.invoice_code;
+    if(d.invoice_date) document.getElementById('iv_date').value=d.invoice_date;
+    if(d.tax_rate) document.getElementById('iv_taxrate').value=d.tax_rate;
+    if(d.untax_amount) document.getElementById('iv_untax').value=d.untax_amount;
+    if(d.tax_amount) document.getElementById('iv_tax').value=d.tax_amount;
+    if(d.total_amount) document.getElementById('iv_total').value=d.total_amount;
+    hint.textContent='识别完成（引擎：'+(d.engine||'?')+'），请核对后保存';
+    toast('识别完成');
+  }catch(e){hint.textContent='';toast(e.message,'error');}
+  finally{btn.disabled=false;}
+}
+function ivPreview(id){
+  showModal('发票图片/PDF',`<iframe src="${API}/invoices/image/${id}" style="width:100%;height:70vh;border:0"></iframe>`);
+}
+function calcInvAmt(){
+  const untax=+(document.getElementById('iv_untax')?.value)||0;
+  const rate=+(document.getElementById('iv_taxrate')?.value)||0;
+  const tax=untax*rate/100;
+  const el=document.getElementById('iv_tax');
+  const tel=document.getElementById('iv_total');
+  if(el) el.value=tax.toFixed(2);
+  if(tel) tel.value=(untax+tax).toFixed(2);
+}
+function calcInvTotal(){
+  const untax=+(document.getElementById('iv_untax')?.value)||0;
+  const tax=+(document.getElementById('iv_tax')?.value)||0;
+  const el=document.getElementById('iv_total');
+  if(el) el.value=(untax+tax).toFixed(2);
+}
+async function saveInvoice(id,dir){
+  const body={
+    invoice_no:document.getElementById('iv_no').value,
+    invoice_code:document.getElementById('iv_code').value,
+    invoice_type:document.getElementById('iv_type').value,
+    direction:dir,
+    partner_id:+document.getElementById('iv_partner').value||null,
+    project_id:+document.getElementById('iv_proj').value||0,
+    invoice_date:document.getElementById('iv_date').value,
+    tax_rate:+document.getElementById('iv_taxrate').value,
+    untax_amount:+document.getElementById('iv_untax').value,
+    tax_amount:+document.getElementById('iv_tax').value,
+    total_amount:+document.getElementById('iv_total').value,
+    status:document.getElementById('iv_st').value,
+    remark:document.getElementById('iv_rem').value,
+    image_path:_ivNewImg,
+    ocr_raw:_ivNewOcr
+  };
+  try{
+    id?await put('/invoices/'+id,body):await post('/invoices',body);
+    _ivNewImg=''; _ivNewOcr='';
+    toast('保存成功'); closeModal(); loadInvoices(dir);
+  }catch(e){toast(e.message,'error')}
+}
+async function delInvoice(id,dir){
+  try{await del('/invoices/'+id);toast('已作废');loadInvoices(dir);}catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 项目管理
+// ══════════════════════════════════════
+async function pageProjects(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <input id="pj_kw" placeholder="项目名称/编号" style="width:180px">
+    <select id="pj_status" style="width:100px">
+      <option value="-1">全部状态</option>
+      <option value="1">进行中</option>
+      <option value="2">已完成</option>
+      <option value="3">已暂停</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadProjects()">🔍 查询</button>
+    <button class="btn" onclick="editProject()">➕ 新建项目</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>编号</th><th>项目名称</th><th>客户</th><th>负责人</th>
+    <th>开始日期</th><th>合同金额</th><th>采购额</th><th>销售额</th><th>毛利</th><th>状态</th><th>操作</th>
+  </tr></thead><tbody id="pj-tbody"></tbody></table></div></div>`;
+  loadProjects();
+}
+const PJ_STATUS={1:'进行中',2:'已完成',3:'已暂停',0:'已取消'};
+const PJ_COLORS={1:'tag-green',2:'tag-blue',3:'tag-orange',0:'tag-red'};
+async function loadProjects(){
+  const kw=document.getElementById('pj_kw').value;
+  const st=document.getElementById('pj_status').value;
+  const rows=await get('/projects',`keyword=${kw}&status=${st}`);
+  _projects=rows.filter(p=>p.status==1);
+  const costs=await get('/stats/project_cost');
+  const costMap={};
+  costs.forEach(c=>{costMap[c.name]=c;});
+  document.getElementById('pj-tbody').innerHTML=rows.length
+    ?rows.map(r=>{
+      const cs=costMap[r.name]||{purchase_total:0,sale_total:0,gross_profit:0};
+      return `<tr>
+        <td>${r.code}</td>
+        <td><button class="btn-link" onclick="viewProject(${r.id})">${r.name}</button></td>
+        <td>${r.customer_name||'-'}</td><td>${r.manager||'-'}</td>
+        <td>${fmtDate(r.start_date)}</td>
+        <td>${fmtMoney(r.contract_amount)}</td>
+        <td>${fmtMoney(cs.purchase_total)}</td>
+        <td>${fmtMoney(cs.sale_total)}</td>
+        <td style="color:${cs.gross_profit>=0?'#52c41a':'#ff4d4f'}">${fmtMoney(cs.gross_profit)}</td>
+        <td><span class="tag ${PJ_COLORS[r.status]||''}">${PJ_STATUS[r.status]||'-'}</span></td>
+        <td>
+          <button class="btn-link" onclick="viewProject(${r.id})">查看</button>
+          <button class="btn-link" onclick="editProject(${r.id})">编辑</button>
+          <button class="btn-link" style="color:var(--danger)" onclick="delProject(${r.id})">删除</button>
+        </td></tr>`;
+    }).join('')
+    :'<tr><td colspan="11" class="empty-tip">暂无项目</td></tr>';
+}
+async function viewProject(id){
+  const d=await get('/projects/'+id);
+  // 查该项目相关单据
+  const [purchases,sales,reqs,invs,tasks]=await Promise.all([
+    get('/purchase',`project_id=${id}&status=-1`),
+    get('/sale',`project_id=${id}&status=-1`),
+    get('/requisition',`project_id=${id}&status=-1`),
+    get('/invoices',`project_id=${id}`),
+    get('/projects/'+id+'/tasks')
+  ]);
+  const gross=d.sale_total-d.purchase_total;
+  showModal(`项目详情 - ${d.name}`,`
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+    <div style="background:#e6f7ff;padding:12px;border-radius:6px;text-align:center">
+      <div style="font-size:12px;color:#888">采购金额</div>
+      <div style="font-size:18px;font-weight:700;color:#1677ff">${fmtMoney(d.purchase_total)}</div>
+    </div>
+    <div style="background:#f6ffed;padding:12px;border-radius:6px;text-align:center">
+      <div style="font-size:12px;color:#888">销售金额</div>
+      <div style="font-size:18px;font-weight:700;color:#52c41a">${fmtMoney(d.sale_total)}</div>
+    </div>
+    <div style="background:#fff7e6;padding:12px;border-radius:6px;text-align:center">
+      <div style="font-size:12px;color:#888">耗材领用</div>
+      <div style="font-size:18px;font-weight:700;color:#fa8c16">${fmtMoney(d.req_total)}</div>
+    </div>
+    <div style="background:${gross>=0?'#f6ffed':'#fff2f0'};padding:12px;border-radius:6px;text-align:center">
+      <div style="font-size:12px;color:#888">毛利</div>
+      <div style="font-size:18px;font-weight:700;color:${gross>=0?'#52c41a':'#ff4d4f'}">${fmtMoney(gross)}</div>
+    </div>
+  </div>
+  <div class="tabs" id="pj_tabs">
+    <div class="tab active" onclick="switchPjTab('po')">采购单(${purchases.length})</div>
+    <div class="tab" onclick="switchPjTab('so')">销售单(${sales.length})</div>
+    <div class="tab" onclick="switchPjTab('mq')">耗材领用(${reqs.length})</div>
+    <div class="tab" onclick="switchPjTab('iv')">发票(${invs.length})</div>
+    <div class="tab" onclick="switchPjTab('flow')">项目流程(${tasks.length})</div>
+    <div class="tab" onclick="switchPjTab('gantt')">甘特图</div>
+  </div>
+  <div id="pjtab_po" class="tab-content active">
+    <table><thead><tr><th>单号</th><th>供应商</th><th>日期</th><th>金额</th><th>状态</th></tr></thead>
+    <tbody>${purchases.map(r=>`<tr><td>${r.order_no}</td><td>${r.supplier_name||'-'}</td>
+      <td>${fmtDate(r.order_date)}</td><td>${fmtMoney(r.total_amount)}</td>
+      <td>${statusBadge(r.status,PO_STATUS)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty-tip">暂无</td></tr>'}
+    </tbody></table>
+  </div>
+  <div id="pjtab_so" class="tab-content">
+    <table><thead><tr><th>单号</th><th>客户</th><th>日期</th><th>金额</th><th>毛利</th><th>状态</th></tr></thead>
+    <tbody>${sales.map(r=>`<tr><td>${r.order_no}</td><td>${r.customer_name||'-'}</td>
+      <td>${fmtDate(r.order_date)}</td><td>${fmtMoney(r.total_amount)}</td>
+      <td style="color:${r.gross_profit>=0?'#52c41a':'#ff4d4f'}">${r.status==3?fmtMoney(r.gross_profit):'-'}</td>
+      <td>${statusBadge(r.status,SO_STATUS)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty-tip">暂无</td></tr>'}
+    </tbody></table>
+  </div>
+  <div id="pjtab_mq" class="tab-content">
+    <table><thead><tr><th>单号</th><th>仓库</th><th>执行人</th><th>业务人员(领用人)</th><th>日期</th><th>总成本</th><th>状态</th></tr></thead>
+    <tbody>${reqs.map(r=>`<tr><td>${r.order_no}</td><td>${r.warehouse_name||'-'}</td>
+      <td>${r.operator||'-'}</td><td>${r.applicant||'-'}</td><td>${fmtDate(r.req_date)}</td>
+      <td>${r.status==3?fmtMoney(r.total_cost):'-'}</td>
+      <td>${statusBadge(r.status,REQ_STATUS)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty-tip">暂无</td></tr>'}
+    </tbody></table>
+  </div>
+  <div id="pjtab_iv" class="tab-content">
+    <table><thead><tr><th>发票号</th><th>类型</th><th>方向</th><th>往来单位</th><th>日期</th><th>金额</th><th>状态</th></tr></thead>
+    <tbody>${invs.map(r=>`<tr><td>${r.invoice_no||'-'}</td><td>${r.invoice_type}</td>
+      <td>${r.direction==1?'进项':'出项'}</td><td>${r.partner_name||'-'}</td>
+      <td>${fmtDate(r.invoice_date)}</td><td>${fmtMoney(r.total_amount)}</td>
+      <td>${r.status}</td></tr>`).join('')||'<tr><td colspan="7" class="empty-tip">暂无</td></tr>'}
+    </tbody></table>
+  </div>
+  <div id="pjtab_flow" class="tab-content">
+    <div style="margin:4px 0 12px"><button class="btn btn-primary btn-sm" onclick="editTask()">+ 新增任务/阶段</button></div>
+    <div id="flow-body"></div>
+  </div>
+  <div id="pjtab_gantt" class="tab-content">
+    <div id="gantt-body"></div>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">关闭</button>`);
+  _curPjId = id;
+  _curPjTasks = tasks || [];
+  renderProjectTasks();
+  renderGantt();
+}
+function switchPjTab(t){
+  document.querySelectorAll('.tab').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('pjtab_'+t)?.classList.add('active');
+}
+
+// ════════════════════════════════════════════════════
+// 项目流程（任务/阶段） & 甘特图
+// ════════════════════════════════════════════════════
+let _curPjId=null, _curPjTasks=[];
+async function editTask(taskId){
+  const pid = _curPjId;
+  let t={name:'',assignee:'',start_date:'',end_date:'',progress:0,status:1,remark:''};
+  if(taskId){ t = (_curPjTasks||[]).find(x=>x.id===taskId) || t; }
+  showModal(taskId?'编辑任务/阶段':'新增任务/阶段',`
+    <div class="form-grid">
+      <div class="form-row" style="grid-column:span 2"><label>名称*</label><input id="tk_name" value="${t.name||''}"></div>
+      <div class="form-row"><label>负责人</label><input id="tk_assignee" value="${t.assignee||''}"></div>
+      <div class="form-row"><label>状态</label><select id="tk_status">
+        <option value="1" ${t.status==1?'selected':''}>未开始</option>
+        <option value="2" ${t.status==2?'selected':''}>进行中</option>
+        <option value="3" ${t.status==3?'selected':''}>已完成</option>
+        <option value="4" ${t.status==4?'selected':''}>延期</option></select></div>
+      <div class="form-row"><label>开始日期</label><input type="date" id="tk_sd" value="${t.start_date||''}"></div>
+      <div class="form-row"><label>结束日期</label><input type="date" id="tk_ed" value="${t.end_date||''}"></div>
+      <div class="form-row"><label>进度(%)</label><input type="number" min="0" max="100" id="tk_prog" value="${t.progress||0}"></div>
+      <div class="form-row" style="grid-column:span 2"><label>备注</label><input id="tk_rem" value="${t.remark||''}"></div>
+    </div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="saveTask(${pid},${taskId||'null'})">保存</button>`);
+}
+async function saveTask(pid, taskId){
+  const body={
+    name:document.getElementById('tk_name').value,
+    assignee:document.getElementById('tk_assignee').value,
+    start_date:document.getElementById('tk_sd').value,
+    end_date:document.getElementById('tk_ed').value,
+    progress:+document.getElementById('tk_prog').value||0,
+    status:+document.getElementById('tk_status').value,
+    remark:document.getElementById('tk_rem').value
+  };
+  if(!body.name){toast('请填写名称','error');return;}
+  try{
+    taskId?await put(`/projects/${pid}/tasks/${taskId}`,body):await post(`/projects/${pid}/tasks`,body);
+    toast('保存成功'); closeModal(); await refreshTasks();
+  }catch(e){toast(e.message,'error')}
+}
+async function delTask(taskId){
+  if(!confirm('确定删除该任务/阶段？')) return;
+  try{
+    await del(`/projects/${_curPjId}/tasks/${taskId}`);
+    toast('已删除'); await refreshTasks();
+  }catch(e){toast(e.message,'error')}
+}
+async function refreshTasks(){
+  if(!_curPjId) return;
+  _curPjTasks = await get('/projects/'+_curPjId+'/tasks');
+  renderProjectTasks(); renderGantt();
+  const tb=document.querySelector('#pj_tabs .tab[onclick*="flow"]');
+  if(tb) tb.textContent='项目流程('+_curPjTasks.length+')';
+}
+function renderProjectTasks(){
+  const tasks = _curPjTasks || [];
+  const el = document.getElementById('flow-body');
+  if(!el) return;
+  if(!tasks.length){
+    el.innerHTML = '<div class="empty-tip" style="padding:24px;text-align:center;color:#999">还没有任务/阶段。点击「+ 新增任务/阶段」开始规划项目流程。</div>';
+    return;
+  }
+  const st={1:'未开始',2:'进行中',3:'已完成',4:'延期'};
+  const rows = tasks.map(t=>`<tr>
+    <td><b>${t.name}</b></td>
+    <td>${t.assignee||'-'}</td>
+    <td>${t.start_date||'-'}</td>
+    <td>${t.end_date||'-'}</td>
+    <td style="min-width:130px"><div style="background:#f0f0f0;border-radius:8px;height:14px;width:90px;display:inline-block;overflow:hidden;vertical-align:middle"><div style="height:100%;width:${Math.max(0,Math.min(100,+(t.progress||0)))}%;background:#1677ff"></div></div> <span style="font-size:11px;color:#888">${+(t.progress||0)}%</span></td>
+    <td class="task-status-${t.status}">${st[t.status]||'-'}</td>
+    <td>
+      <button class="btn btn-sm" onclick="editTask(${t.id})">编辑</button>
+      <button class="btn btn-sm" onclick="delTask(${t.id})">删除</button>
+    </td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>任务/阶段</th><th>负责人</th><th>开始</th><th>结束</th><th>进度</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function renderGantt(){
+  const tasks = _curPjTasks || [];
+  const el = document.getElementById('gantt-body');
+  if(!el) return;
+  const dated = tasks.filter(t=>t.start_date && t.end_date && !isNaN(new Date(t.start_date)) && !isNaN(new Date(t.end_date)));
+  if(!dated.length){
+    el.innerHTML = '<div class="empty-tip" style="padding:30px;text-align:center;color:#999">暂无带起止日期的任务。请在「项目流程」中给任务设置开始/结束日期，甘特图将自动生成。</div>';
+    return;
+  }
+  const toTs = s=>new Date(s).getTime();
+  let min = Math.min.apply(null, dated.map(t=>toTs(t.start_date)));
+  let max = Math.max.apply(null, dated.map(t=>toTs(t.end_date)));
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayTs = today.getTime();
+  min = Math.min(min, todayTs);
+  max = Math.max(max, todayTs, min+86400000);
+  const span = max - min;
+  const pct = ts => (ts - min)/span*100;
+  const months = [];
+  let d = new Date(min); d.setDate(1);
+  while(d.getTime() <= max){ months.push(new Date(d)); d.setMonth(d.getMonth()+1); }
+  const head = months.map(m=>{
+    const left = pct(m.getTime());
+    const nx = new Date(m); nx.setMonth(m.getMonth()+1);
+    const w = Math.max(pct(Math.min(nx.getTime(),max))-left, 2);
+    return `<div class="gantt-month" style="left:${left}%;width:${w}%">${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,'0')}</div>`;
+  }).join('');
+  const colors={1:'#bfbfbf',2:'#1677ff',3:'#52c41a',4:'#ff4d4f'};
+  const rows = dated.map(t=>{
+    const s=toTs(t.start_date), e=toTs(t.end_date);
+    const left=pct(s), width=Math.max(pct(e)-left,1);
+    const bc=colors[t.status]||'#1677ff';
+    const prog=Math.max(0,Math.min(100,+(t.progress||0)));
+    return `<div class="gantt-row"><div class="gantt-label" title="${t.name}">${t.name}</div>
+      <div class="gantt-track"><div class="gantt-bar" style="left:${left}%;width:${width}%;background:${bc}" title="${t.name}｜${t.start_date}~${t.end_date}｜进度${prog}%">
+      <div class="gantt-progress" style="width:${prog}%"></div></div></div></div>`;
+  }).join('');
+  const todayLeft = (todayTs>=min && todayTs<=max)? pct(todayTs) : null;
+  const todayLine = todayLeft!=null ? `<div class="gantt-today" style="left:calc(160px + (100% - 160px) * ${todayLeft/100})"></div>` : '';
+  el.innerHTML = `<div class="gantt">
+    <div class="gantt-head"><div class="gantt-label">任务/阶段</div>
+      <div class="gantt-track" style="min-height:26px">${head}</div></div>
+    ${rows}
+    ${todayLine}
+  </div>`;
+}
+async function delProject(id){
+  let cnt=0;
+  try{
+    const [ps,ss,qs,isv]=await Promise.all([
+      get('/purchase',`project_id=${id}&status=-1`),
+      get('/sale',`project_id=${id}&status=-1`),
+      get('/requisition',`project_id=${id}&status=-1`),
+      get('/invoices',`project_id=${id}`)
+    ]);
+    cnt=(ps.length||0)+(ss.length||0)+(qs.length||0)+(isv.length||0);
+  }catch(e){}
+  const msg = cnt>0
+    ? `确认删除该项目？其下关联的 ${cnt} 条业务单据（采购/销售/耗材/发票）及任务将一并彻底删除，不可恢复！`
+    : '确认删除该项目？其下任务将一并删除，此操作不可恢复！';
+  confirm2(msg, ()=>doDelProject(id));
+}
+async function doDelProject(id){
+  try{
+    await del('/projects/'+id);
+    toast('项目已删除');
+    loadProjects();
+  }catch(e){ toast(e.message||'删除失败','error'); }
+}
+async function editProject(id=null){
+  let p={code:'',name:'',customer_id:null,manager:'',start_date:'',end_date:'',contract_amount:0,status:1,remark:''};
+  if(id){const d=await get('/projects/'+id);Object.assign(p,d);}
+  // 新增时自动获取项目编号
+  if(!id){try{const r=await get('/gen_code','type=project');p.code=r.code||'';}catch(e){}}
+  const today=new Date().toISOString().substring(0,10);
+  showModal(id?'编辑项目':'新建项目',`
+  <div class="form-grid">
+    <div class="form-row"><label>项目编号</label>
+      <div style="display:flex;gap:4px">
+        <input id="pj_code" value="${p.code}" style="flex:1${!id?';background:#f5f5f5;color:#666':''}" ${!id?'readonly':''}>
+        ${!id?`<button class="btn btn-sm" onclick="refreshCode('pj_code','project')" title="重新生成">↺</button>`:''}
+      </div>
+    </div>
+    <div class="form-row"><label>项目名称*</label><input id="pj_name" value="${p.name}"></div>
+    <div class="form-row"><label>客户</label>
+      <select id="pj_cust"><option value="">请选择</option>${partnerOpts(2,p.customer_id)}</select></div>
+    <div class="form-row"><label>负责人</label><input id="pj_mgr" value="${p.manager||''}"></div>
+    <div class="form-row"><label>开始日期</label>
+      <input type="date" id="pj_sd" value="${p.start_date||today}"></div>
+    <div class="form-row"><label>预计结束</label>
+      <input type="date" id="pj_ed" value="${p.end_date||''}"></div>
+    <div class="form-row"><label>合同金额</label>
+      <input type="number" id="pj_ca" value="${p.contract_amount}"></div>
+    <div class="form-row"><label>状态</label>
+      <select id="pj_st">
+        <option value="1" ${p.status==1?'selected':''}>进行中</option>
+        <option value="2" ${p.status==2?'selected':''}>已完成</option>
+        <option value="3" ${p.status==3?'selected':''}>已暂停</option>
+        <option value="0" ${p.status==0?'selected':''}>已取消</option>
+      </select>
+    </div>
+    <div class="form-row" style="grid-column:span 2"><label>备注</label><input id="pj_rem" value="${p.remark||''}"></div>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveProject(${id||'null'})">保存</button>`);
+}
+async function saveProject(id){
+  const body={
+    code:document.getElementById('pj_code').value,
+    name:document.getElementById('pj_name').value,
+    customer_id:+document.getElementById('pj_cust').value||null,
+    manager:document.getElementById('pj_mgr').value,
+    start_date:document.getElementById('pj_sd').value,
+    end_date:document.getElementById('pj_ed').value,
+    contract_amount:+document.getElementById('pj_ca').value,
+    status:+document.getElementById('pj_st').value,
+    remark:document.getElementById('pj_rem').value
+  };
+  try{
+    id?await put('/projects/'+id,body):await post('/projects',body);
+    toast('保存成功'); closeModal(); loadProjects(); loadCaches();
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 报表
+// ══════════════════════════════════════
+async function pageStats(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="tabs">
+    <div class="tab active" onclick="statsTab('inv_val', this)">库存价值</div>
+    <div class="tab" onclick="statsTab('proj_cost', this)">项目成本</div>
+  </div>
+  <div id="stats_inv_val"><div class="card" id="stats-inv-val-card"></div></div>
+  <div id="stats_proj_cost" style="display:none"><div class="card" id="stats-proj-cost-card"></div></div>`;
+  loadStatsInvVal();
+}
+function statsTab(t, el){
+  document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('stats_inv_val').style.display=t=='inv_val'?'block':'none';
+  document.getElementById('stats_proj_cost').style.display=t=='proj_cost'?'block':'none';
+  if(t=='inv_val') loadStatsInvVal();
+  if(t=='proj_cost') loadStatsProjCost();
+}
+async function loadStatsInvVal(){
+  const rows=await get('/stats/inventory_value');
+  const total=rows.reduce((a,r)=>a+r.total_value,0);
+  document.getElementById('stats-inv-val-card').innerHTML=`
+    <div class="card-title">库存价值汇总</div>
+    <div style="margin-bottom:12px;color:#888">库存总价值：<b style="font-size:18px;color:var(--primary)">${fmtMoney(total)}</b></div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>商品名称</th><th>单位</th><th>库存总数量</th><th>库存总价值</th><th>占比</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td><b>${r.name}</b></td><td>${r.unit}</td>
+      <td>${fmtNum(r.total_qty)}</td>
+      <td><b style="color:var(--primary)">${fmtMoney(r.total_value)}</b></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div class="progress" style="width:80px">
+            <div class="progress-inner" style="width:${Math.min(100,(r.total_value/total*100)).toFixed(0)}%"></div>
+          </div>
+          <span style="font-size:12px">${(r.total_value/total*100).toFixed(1)}%</span>
+        </div>
+      </td></tr>`).join('')||'<tr><td colspan="5" class="empty-tip">暂无库存数据</td></tr>'}
+    </tbody></table></div>`;
+}
+async function loadStatsProjCost(){
+  const rows=await get('/stats/project_cost');
+  document.getElementById('stats-proj-cost-card').innerHTML=`
+    <div class="card-title">项目成本统计</div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>项目</th><th>采购总额</th><th>耗材领用</th><th>总成本</th><th>销售总额</th><th>毛利</th><th>毛利率</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>{
+      const cost=r.purchase_total+r.req_total;
+      const margin=r.sale_total>0?((r.gross_profit/r.sale_total)*100).toFixed(1):'0';
+      return `<tr>
+        <td><b>${r.name}</b></td>
+        <td>${fmtMoney(r.purchase_total)}</td>
+        <td>${fmtMoney(r.req_total)}</td>
+        <td>${fmtMoney(cost)}</td>
+        <td>${fmtMoney(r.sale_total)}</td>
+        <td style="color:${r.gross_profit>=0?'#52c41a':'#ff4d4f'}"><b>${fmtMoney(r.gross_profit)}</b></td>
+        <td>${margin}%</td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="7" class="empty-tip">暂无项目数据</td></tr>'}
+    </tbody></table></div>`;
+}
+
+// ══════════════════════════════════════
+// 页面：商品分类（三级）
+// ══════════════════════════════════════
+async function pageCategories(){
+  await loadBrandsAndCats();
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span class="card-title" style="margin:0">商品分类管理（支持三级）</span>
+    <button class="btn btn-primary" onclick="editCategory(null,'',0,0)">➕ 新增一级分类</button>
+  </div>
+  <div id="cat-tree">${renderCatTree(_categories)}</div>
+  </div>`;
+}
+async function editCategory(id,name,parentId,sortOrder){
+  const isNew = id===null;
+  const parentName = parentId>0 ? (_categories.find(c=>c.id===parentId)||{}).name : '';
+  showModal(isNew?'新增分类':'编辑分类',`
+    <div class="form-grid-2">
+      ${parentId>0?`<div class="form-row" style="grid-column:span 2"><label>上级分类</label><input value="${parentName}" readonly style="background:#f5f5f5"></div>`:''}
+      <div class="form-row"><label>分类名称*</label><input id="fc_name" value="${name||''}"></div>
+      <div class="form-row"><label>排序(越小越前)</label><input id="fc_sort" type="number" value="${sortOrder||0}"></div>
+    </div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="saveCat(${id||'null'},${parentId||0})">保存</button>`);
+}
+async function saveCat(id,parentId){
+  const name=document.getElementById('fc_name').value.trim();
+  if(!name){toast('分类名称不能为空','error');return;}
+  const body={name,parent_id:parentId,sort_order:+document.getElementById('fc_sort').value||0};
+  try{
+    id?await put('/categories/'+id,body):await post('/categories',body);
+    toast(id?'保存成功':'新增成功');
+    closeModal();
+    await loadBrandsAndCats();
+    pageCategories();
+  }catch(e){toast(e.message,'error')}
+}
+async function delCategory(id){
+  try{await del('/categories/'+id);toast('删除成功');await loadBrandsAndCats();pageCategories();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 页面：品牌管理
+// ══════════════════════════════════════
+async function pageBrands(){
+  await loadBrandsAndCats();
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span class="card-title" style="margin:0">品牌管理</span>
+    <button class="btn btn-primary" onclick="editBrand()">➕ 新增品牌</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>品牌名称</th><th>排序</th><th>备注</th><th>状态</th><th>操作</th>
+  </tr></thead>
+  <tbody>${_brands.length?_brands.map(b=>`<tr>
+    <td><b>${b.name}</b></td>
+    <td>${b.sort_order||0}</td>
+    <td>${b.remark||'-'}</td>
+    <td>${b.status!==0?'<span class="tag tag-green">启用</span>':'<span class="tag tag-red">停用</span>'}</td>
+    <td>
+      <button class="btn-link" onclick="editBrand(${b.id})">编辑</button>
+      <button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除品牌「${b.name}」？',()=>delBrand(${b.id}))">删除</button>
+    </td></tr>`).join('')
+    :'<tr><td colspan="5" class="empty-tip">暂无品牌</td></tr>'}
+  </tbody></table></div></div>`;
+}
+async function editBrand(id=null){
+  let b={name:'',remark:'',sort_order:0,status:1};
+  if(id) b=_brands.find(x=>x.id===id)||b;
+  showModal(id?'编辑品牌':'新增品牌',`
+    <div class="form-grid-2">
+      <div class="form-row"><label>品牌名称*</label><input id="fb_name" value="${b.name}"></div>
+      <div class="form-row"><label>排序</label><input id="fb_sort" type="number" value="${b.sort_order||0}"></div>
+      <div class="form-row"><label>状态</label>
+        <select id="fb_status"><option value="1" ${b.status!==0?'selected':''}>启用</option><option value="0" ${b.status===0?'selected':''}>停用</option></select>
+      </div>
+      <div class="form-row"><label>备注</label><input id="fb_remark" value="${b.remark||''}"></div>
+    </div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="saveBrand(${id||'null'})">保存</button>`);
+}
+async function saveBrand(id){
+  const name=document.getElementById('fb_name').value.trim();
+  if(!name){toast('品牌名称不能为空','error');return;}
+  const body={name,sort_order:+document.getElementById('fb_sort').value||0,status:+document.getElementById('fb_status').value,remark:document.getElementById('fb_remark').value};
+  try{
+    id?await put('/brands/'+id,body):await post('/brands',body);
+    toast(id?'保存成功':'新增成功');
+    closeModal();
+    await loadBrandsAndCats();
+    pageBrands();
+  }catch(e){toast(e.message,'error')}
+}
+async function delBrand(id){
+  try{await del('/brands/'+id);toast('删除成功');await loadBrandsAndCats();pageBrands();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 计量单位字典
+// ══════════════════════════════════════
+async function pageUnits(){
+  await loadBrandsAndCats();
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span class="card-title" style="margin:0">计量单位</span>
+    <button class="btn btn-primary" onclick="addUnit()">➕ 新增单位</button>
+  </div>
+  <div style="font-size:12px;color:#aaa;margin-bottom:10px">此处维护可在商品档案中选择的计量单位。已绑定到商品的单位无法删除。</div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>单位名称</th><th>操作</th>
+  </tr></thead>
+  <tbody id="unit-tbody"></tbody></table></div></div>`;
+  renderUnits();
+}
+async function renderUnits(){
+  const tb=document.getElementById('unit-tbody');
+  if(!tb) return;
+  tb.innerHTML = _units.length ? _units.map(u=>`<tr>
+    <td><b>${u.name}</b></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除单位「${u.name}」？',()=>delUnit(${u.id}))">删除</button></td>
+  </tr>`).join('')
+  : '<tr><td colspan="2" class="empty-tip">暂无单位，点击右上角新增</td></tr>';
+}
+async function addUnit(){
+  const name=prompt('请输入计量单位名称：');
+  if(!name||!name.trim()) return;
+  try{
+    await post('/units',{name:name.trim(),remark:''});
+    toast('已添加','success');
+    await loadBrandsAndCats();
+    renderUnits();
+  }catch(e){ toast(e.message,'error'); }
+}
+async function delUnit(id){
+  try{ await del('/units/'+id); toast('已删除'); await loadBrandsAndCats(); renderUnits(); }
+  catch(e){ toast(e.message,'error'); }
+}
+
+
+
+// ══════════════════════════════════════
+// 银行账户缓存
+// ══════════════════════════════════════
+let _bankAccounts = [];
+async function loadBankAccounts(){
+  _bankAccounts = await get('/bank_accounts');
+}
+loadBankAccounts();
+
+function bankAccountOpts(sel=''){
+  if(!_bankAccounts.length) return '<option value="0">暂无账户</option>';
+  return [('<option value="0">请选择账户</option>'),
+    ..._bankAccounts.filter(b=>b.status!==0).map(b=>
+      `<option value="${b.id}" ${sel==b.id?'selected':''}>${b.name}（${b.account_no||'无账号'}）</option>`)
+  ].join('');
+}
+
+// ══════════════════════════════════════
+// 页面：银行账户管理
+// ══════════════════════════════════════
+async function pageBankAccounts(){
+  await loadBankAccounts();
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span class="card-title" style="margin:0">银行账户管理</span>
+    <button class="btn btn-primary" onclick="editBankAccount()">➕ 新增账户</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>编码</th><th>账户名称</th><th>开户行</th><th>账号</th><th>币种</th><th>当前余额</th><th>状态</th><th>备注</th><th>操作</th>
+  </tr></thead>
+  <tbody>${_bankAccounts.length?_bankAccounts.map(b=>`<tr>
+    <td>${b.code}</td><td><b>${b.name}</b></td>
+    <td>${b.bank_name||'-'}</td>
+    <td>${b.account_no||'-'}</td>
+    <td>${b.currency||'CNY'}</td>
+    <td><b style="color:${b.balance>=0?'var(--success)':'var(--danger)'}">${fmtMoney(b.balance)}</b></td>
+    <td>${b.status!==0?'<span class="tag tag-green">启用</span>':'<span class="tag tag-red">停用</span>'}</td>
+    <td>${b.remark||'-'}</td>
+    <td>
+      <button class="btn-link" onclick="editBankAccount(${b.id})">编辑</button>
+      <button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除账户「${b.name}」？',()=>delBankAccount(${b.id}))">删除</button>
+    </td></tr>`).join('')
+    :'<tr><td colspan="9" class="empty-tip">暂无账户</td></tr>'}
+  </tbody></table></div></div>`;
+}
+async function editBankAccount(id=null){
+  let b={code:'',name:'',bank_name:'',account_no:'',currency:'CNY',opening_balance:0,status:1,remark:''};
+  if(id) b=_bankAccounts.find(x=>x.id===id)||b;
+  showModal(id?'编辑银行账户':'新增银行账户',`
+    <div class="form-grid">
+      <div class="form-row"><label>账户名称*</label><input id="fba_name" value="${b.name}"></div>
+      <div class="form-row"><label>开户行</label><input id="fba_bank" value="${b.bank_name||''}"></div>
+      <div class="form-row"><label>账号</label><input id="fba_no" value="${b.account_no||''}"></div>
+      <div class="form-row"><label>币种</label>
+        <select id="fba_cur">
+          <option value="CNY" ${(b.currency||'CNY')==='CNY'?'selected':''}>CNY 人民币</option>
+          <option value="USD" ${b.currency==='USD'?'selected':''}>USD 美元</option>
+          <option value="EUR" ${b.currency==='EUR'?'selected':''}>EUR 欧元</option>
+        </select>
+      </div>
+      ${!id?`<div class="form-row"><label>期初余额</label><input id="fba_ob" type="number" value="0"></div>`:''}
+      <div class="form-row"><label>状态</label>
+        <select id="fba_st"><option value="1" ${b.status!==0?'selected':''}>启用</option><option value="0" ${b.status===0?'selected':''}>停用</option></select>
+      </div>
+      <div class="form-row" style="grid-column:span 2"><label>备注</label><input id="fba_rem" value="${b.remark||''}"></div>
+    </div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="saveBankAccount(${id||'null'})">保存</button>`);
+}
+async function saveBankAccount(id){
+  const name=document.getElementById('fba_name').value.trim();
+  if(!name){toast('账户名称不能为空','error');return;}
+  const body={
+    name,bank_name:document.getElementById('fba_bank').value,
+    account_no:document.getElementById('fba_no').value,
+    currency:document.getElementById('fba_cur').value,
+    opening_balance:id?0:+(document.getElementById('fba_ob')?.value||0),
+    status:+document.getElementById('fba_st').value,
+    remark:document.getElementById('fba_rem').value
+  };
+  try{
+    id?await put('/bank_accounts/'+id,body):await post('/bank_accounts',body);
+    toast(id?'保存成功':'新增成功');
+    closeModal();await loadBankAccounts();pageBankAccounts();
+  }catch(e){toast(e.message,'error')}
+}
+async function delBankAccount(id){
+  try{await del('/bank_accounts/'+id);toast('删除成功');await loadBankAccounts();pageBankAccounts();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 页面：收款/付款管理（共用）
+// ══════════════════════════════════════
+async function pagePaymentRecv(){ await _pagePayment(1); }
+async function pagePaymentPay(){ await _pagePayment(2); }
+
+async function _pagePayment(payType){
+  await Promise.all([loadBankAccounts(), loadCaches()]);
+  const isRecv = payType===1;
+  const c=document.getElementById('content');
+  const today=new Date().toISOString().slice(0,7);
+  c.innerHTML=`<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div class="search-bar">
+      <input id="pk_kw" placeholder="单号/往来单位/备注" style="width:180px">
+      <select id="pk_partner" style="width:130px">
+        <option value="-1">全部单位</option>
+        ${_partners.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+      </select>
+      <input id="pk_df" type="month" value="${today}" style="width:120px">
+      <input id="pk_dt" type="month" value="${today}" style="width:120px">
+      <button class="btn btn-primary" onclick="loadPayments(${payType})">🔍 查询</button>
+    </div>
+    <button class="btn btn-primary" onclick="editPayment(null,${payType})">➕ 新增${isRecv?'收款':'付款'}</button>
+  </div>
+  <div id="pay-summary" style="display:flex;gap:16px;margin-bottom:12px"></div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>单号</th><th>日期</th><th>${isRecv?'收款方':'付款方'}</th>
+    <th>银行账户</th><th>金额</th><th>手续费</th>
+    <th>备注</th><th>操作</th>
+  </tr></thead>
+  <tbody id="pay-tbody"></tbody></table></div></div>`;
+  loadPayments(payType);
+}
+
+async function loadPayments(payType){
+  const kw=document.getElementById('pk_kw')?.value||'';
+  const pid=document.getElementById('pk_partner')?.value||'-1';
+  const df=(document.getElementById('pk_df')?.value||'')+'-01';
+  const dtM=document.getElementById('pk_dt')?.value||'';
+  let dt='';
+  if(dtM){const d=new Date(dtM+'-01');d.setMonth(d.getMonth()+1);d.setDate(0);dt=d.toISOString().slice(0,10);}
+  const rows=await get('/payments',
+    `pay_type=${payType}&partner_id=${pid}&date_from=${df}&date_to=${dt}&keyword=${encodeURIComponent(kw)}`);
+  const total=rows.reduce((s,r)=>s+r.amount,0);
+  const fee=rows.reduce((s,r)=>s+(r.fee||0),0);
+  const sumEl=document.getElementById('pay-summary');
+  if(sumEl) sumEl.innerHTML=`
+    <div style="background:#f6ffed;border:1px solid #b7eb8f;border-radius:6px;padding:8px 16px">
+      <span style="color:#52c41a;font-weight:600">共 ${rows.length} 笔</span>
+      <span style="margin-left:12px">合计金额：<b style="color:var(--primary)">${fmtMoney(total)}</b></span>
+      ${fee>0?`<span style="margin-left:12px;color:#888">手续费合计：${fmtMoney(fee)}</span>`:''}
+    </div>`;
+  const tbody=document.getElementById('pay-tbody');
+  if(!tbody) return;
+  tbody.innerHTML=rows.length?rows.map(r=>`<tr>
+    <td>${r.pay_no}</td>
+    <td>${r.pay_date||'-'}</td>
+    <td>${r.partner_name||'-'}</td>
+    <td>${r.bank_account_name||'-'}<br><small style="color:#aaa">${r.bank_account_no||''}</small></td>
+    <td><b style="color:var(--success)">${fmtMoney(r.amount)}</b></td>
+    <td>${r.fee>0?fmtMoney(r.fee):'-'}</td>
+    <td>${r.remark||'-'}</td>
+      <td>
+        <button class="btn-link" onclick="viewPayment(${r.id})">查看</button>
+        ${r.audit_status===0?`<button class="btn-link btn-success" onclick="doApprove('payment',${r.id})">审核</button>`:''}
+        ${r.audit_status===0?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认撤销该${payType===1?'收款':'付款'}？余额将回滚！',()=>cancelPayment(${r.id},${payType}))">撤销</button>`:''}
+        ${r.audit_status===1?`<button class="btn-link" onclick="doUnapprove('payment',${r.id})">反审核</button><button class="btn-link" style="color:var(--danger)" onclick="doVoid('payment',${r.id})">作废</button>`:''}
+        ${r.audit_status===2?`<button class="btn-link" onclick="doUnapprove('payment',${r.id})">反审核</button>`:''}
+      </td></tr>`).join('')
+    :'<tr><td colspan="8" class="empty-tip">暂无数据</td></tr>';
+}
+
+async function editPayment(id=null, payType=1){
+  await Promise.all([loadBankAccounts(), loadCaches()]);
+  const isRecv=payType===1;
+  const today=new Date().toISOString().slice(0,10);
+  showModal(`新增${isRecv?'收款':'付款'}`,`
+  <div class="form-grid">
+    <div class="form-row"><label>${isRecv?'收款自':'付款至'}*</label>
+      <select id="fp_partner">
+        <option value="0">请选择</option>
+        ${_partners.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row"><label>${isRecv?'收款':'付款'}账户*</label>
+      <select id="fp_bank">${bankAccountOpts()}</select>
+    </div>
+    <div class="form-row"><label>日期*</label><input id="fp_date" type="date" value="${today}"></div>
+    <div class="form-row"><label>金额*</label><input id="fp_amount" type="number" value="0" step="0.01" min="0"></div>
+    <div class="form-row"><label>手续费</label><input id="fp_fee" type="number" value="0" step="0.01" min="0"></div>
+    <div class="form-row"><label>关联项目</label>
+      <select id="fp_proj"><option value="0">无</option>
+        ${_projects.map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row" style="grid-column:span 2"><label>备注</label><input id="fp_remark" placeholder="可填摘要、用途等"></div>
+    <div class="form-row" style="grid-column:span 2"><label>操作人</label><input id="fp_op" placeholder="操作人姓名"></div>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="savePayment(${payType})">保存</button>`);
+}
+
+async function savePayment(payType){
+  const amount=+document.getElementById('fp_amount').value||0;
+  const bankId=+document.getElementById('fp_bank').value||0;
+  const partnerId=+document.getElementById('fp_partner').value||0;
+  if(amount<=0){toast('金额必须大于0','error');return;}
+  if(!bankId){toast('请选择收付款账户','error');return;}
+  const body={
+    pay_type:payType,
+    pay_date:document.getElementById('fp_date').value,
+    partner_id:partnerId,
+    bank_account_id:bankId,
+    amount,fee:+document.getElementById('fp_fee').value||0,
+    project_id:+document.getElementById('fp_proj').value||0,
+    remark:document.getElementById('fp_remark').value,
+    operator:document.getElementById('fp_op').value,
+    relations:[]
+  };
+  try{
+    const r=await post('/payments',body);
+    toast(`${payType===1?'收款':'付款'}成功，单号：${r.pay_no}`);
+    closeModal();await loadBankAccounts();loadPayments(payType);
+  }catch(e){toast(e.message,'error')}
+}
+
+async function viewPayment(id){
+  const pay=await get('/payments/'+id);
+  const isRecv=pay.pay_type===1;
+  showModal(`${isRecv?'收款':'付款'}详情 - ${pay.pay_no}`,`
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
+    <div><label style="color:#888">单号</label><div>${pay.pay_no}</div></div>
+    <div><label style="color:#888">日期</label><div>${pay.pay_date||'-'}</div></div>
+    <div><label style="color:#888">往来单位</label><div>${pay.partner_name||'-'}</div></div>
+    <div><label style="color:#888">银行账户</label><div>${pay.bank_account_name||'-'}</div></div>
+    <div><label style="color:#888">金额</label><div><b style="color:var(--success);font-size:16px">${fmtMoney(pay.amount)}</b></div></div>
+    <div><label style="color:#888">手续费</label><div>${pay.fee>0?fmtMoney(pay.fee):'-'}</div></div>
+    <div><label style="color:#888">操作人</label><div>${pay.operator||'-'}</div></div>
+    <div><label style="color:#888">备注</label><div>${pay.remark||'-'}</div></div>
+  </div>`,
+  `<button class="btn btn-primary" onclick="closeModal()">关闭</button>`);
+}
+
+async function cancelPayment(id, payType){
+  try{
+    await del('/payments/'+id);
+    toast('已撤销，余额已回滚');
+    loadPayments(payType);
+    await loadBankAccounts();
+  }catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 页面：对账管理
+// ══════════════════════════════════════
+async function pageReconciliation(){
+  await loadCaches();
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div class="search-bar">
+      <select id="rc_type" style="width:110px">
+        <option value="-1">全部类型</option>
+        <option value="1">应收对账</option>
+        <option value="2">应付对账</option>
+      </select>
+      <select id="rc_partner" style="width:140px">
+        <option value="-1">全部单位</option>
+        ${_partners.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary" onclick="loadRecons()">🔍 查询</button>
+    </div>
+    <button class="btn btn-primary" onclick="genRecon()">➕ 生成对账单</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>对账单号</th><th>往来单位</th><th>类型</th><th>对账期间</th>
+    <th>单据金额</th><th>已收付款</th><th>未结余额</th><th>状态</th><th>操作</th>
+  </tr></thead>
+  <tbody id="recon-tbody"></tbody></table></div></div>`;
+  loadRecons();
+}
+
+const RECON_STATUS={0:'<span class="tag">待审核</span>',1:'<span class="tag tag-green">已审核</span>',2:'<span class="tag tag-red">已作废</span>'};
+async function loadRecons(){
+  const t=document.getElementById('rc_type')?.value||'-1';
+  const p=document.getElementById('rc_partner')?.value||'-1';
+  const rows=await get('/reconciliations',`recon_type=${t}&partner_id=${p}`);
+  document.getElementById('recon-tbody').innerHTML=rows.length?rows.map(r=>`<tr>
+    <td>${r.recon_no}</td>
+    <td>${r.partner_name||'-'}</td>
+    <td>${r.recon_type===1?'<span class="tag tag-blue">应收</span>':'<span class="tag tag-orange">应付</span>'}</td>
+    <td>${r.period_start||'不限'} ~ ${r.period_end||'不限'}</td>
+    <td>${fmtMoney(r.total_order_amount)}</td>
+    <td>${fmtMoney(r.total_paid_amount)}</td>
+    <td><b style="color:${r.balance_amount>0?'var(--danger)':r.balance_amount<0?'var(--warning)':'var(--success)'}">${fmtMoney(r.balance_amount)}</b></td>
+    <td>${RECON_STATUS[r.audit_status]||'-'}</td>
+    <td>
+      ${r.audit_status===0?`<button class="btn-link btn-success" onclick="doApprove('recon',${r.id})">审核</button>`:''}
+      ${r.audit_status===0?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除该对账单？',()=>delRecon(${r.id}))">删除</button>`:''}
+      ${r.audit_status===1?`<button class="btn-link" onclick="doUnapprove('recon',${r.id})">反审核</button><button class="btn-link" style="color:var(--danger)" onclick="doVoid('recon',${r.id})">作废</button>`:''}
+      ${r.audit_status===2?`<button class="btn-link" onclick="doUnapprove('recon',${r.id})">反审核</button>`:''}
+    </td></tr>`).join('')
+    :'<tr><td colspan="9" class="empty-tip">暂无对账数据</td></tr>';
+}
+
+async function genRecon(){
+  await loadCaches();
+  const today=new Date().toISOString().slice(0,10);
+  const ym=today.slice(0,7);
+  showModal('生成对账单',`
+  <div class="form-grid-2">
+    <div class="form-row"><label>往来单位*</label>
+      <select id="fr_partner">
+        <option value="0">请选择</option>
+        ${_partners.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row"><label>对账类型*</label>
+      <select id="fr_type">
+        <option value="1">应收对账（基于销售单）</option>
+        <option value="2">应付对账（基于采购单）</option>
+      </select>
+    </div>
+    <div class="form-row"><label>起始日期</label><input id="fr_ds" type="date" value="${ym}-01"></div>
+    <div class="form-row"><label>截止日期</label><input id="fr_de" type="date" value="${today}"></div>
+    <div class="form-row" style="grid-column:span 2"><label>备注</label><input id="fr_rem" placeholder="可填对账说明"></div>
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="doGenRecon()">生成对账单</button>`);
+}
+
+async function doGenRecon(){
+  const pid=+document.getElementById('fr_partner').value;
+  if(!pid){toast('请选择往来单位','error');return;}
+  const body={
+    partner_id:pid,
+    recon_type:+document.getElementById('fr_type').value,
+    period_start:document.getElementById('fr_ds').value,
+    period_end:document.getElementById('fr_de').value,
+    remark:document.getElementById('fr_rem').value
+  };
+  try{
+    const r=await post('/reconciliations/generate',body);
+    closeModal();
+    toast(`对账单 ${r.recon_no} 已生成！单据：${fmtMoney(r.total_order_amount)}，已收付：${fmtMoney(r.total_paid_amount)}，余额：${fmtMoney(r.balance_amount)}`,'success');
+    loadRecons();
+  }catch(e){toast(e.message,'error')}
+}
+
+async function confirmRecon(id,status){
+  try{
+    await put('/reconciliations/'+id+'/confirm',{status});
+    toast(status===1?'已确认':'已标记争议');
+    loadRecons();
+  }catch(e){toast(e.message,'error')}
+}
+
+async function delRecon(id){
+  try{await del('/reconciliations/'+id);toast('删除成功');loadRecons();}
+  catch(e){toast(e.message,'error')}
+}
+
+// ══════════════════════════════════════
+// 费用单据
+// ══════════════════════════════════════
+const EXPENSE_CATS = ["办公费用","财务费用","差旅费","招待费","水电费","房租","工资薪金","通讯费","维修费","运输费","广告费","其他"];
+function expenseCatOpts(sel=''){
+  return EXPENSE_CATS.map(c=>`<option value="${c}" ${c===sel?'selected':''}>${c}</option>`).join('');
+}
+function curMonth(){ return new Date().toISOString().substring(0,7); }
+function curYear(){ return new Date().toISOString().substring(0,4); }
+
+async function pageExpense(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <input id="exp_month" type="month" value="${curMonth()}" style="width:150px">
+    <select id="exp_cat" style="width:130px"><option value="">全部类别</option>${expenseCatOpts()}</select>
+    <input id="exp_kw" placeholder="单号/备注/业务人员" style="width:180px">
+    <button class="btn btn-primary" onclick="loadExpenses()">🔍 查询</button>
+    <button class="btn" onclick="newExpense()">➕ 新建费用单</button>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>单据号</th><th>日期</th><th>类别</th><th>金额</th><th>付款账户</th><th>业务人员</th><th>执行人</th><th>备注</th><th>操作</th>
+  </tr></thead><tbody id="exp-tbody"></tbody></table></div></div>`;
+  loadExpenses();
+}
+
+async function loadExpenses(){
+  const tbody=document.getElementById('exp-tbody');
+  if(!tbody) return;
+  const m=document.getElementById('exp_month').value;
+  const cat=document.getElementById('exp_cat').value;
+  const kw=encodeURIComponent(document.getElementById('exp_kw').value);
+  try{
+    const list=await get('/expenses',`month=${m}&category=${encodeURIComponent(cat)}&keyword=${kw}`);
+    tbody.innerHTML = list.length ? list.map(r=>`<tr>
+      <td>${r.expense_no}</td>
+      <td>${fmtDate(r.expense_date)}</td>
+      <td><span class="tag">${r.category}</span></td>
+      <td><b style="color:var(--danger)">${fmtMoney(r.amount)}</b></td>
+      <td>${r.pay_account_name||'-'}</td>
+      <td>${r.business_person||'-'}</td>
+      <td>${r.operator||'-'}</td>
+      <td>${r.remark||''}</td>
+      <td>
+        ${r.audit_status===0?`<button class="btn-link" onclick="editExpense(${r.id})">编辑</button>`:''}
+        ${r.audit_status===0?`<button class="btn-link btn-success" onclick="doApprove('expense',${r.id})">审核</button>`:''}
+        ${r.audit_status===0?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除该费用单？',()=>deleteExpense(${r.id}))">删除</button>`:''}
+        ${r.audit_status===1?`<button class="btn-link" onclick="doUnapprove('expense',${r.id})">反审核</button><button class="btn-link" style="color:var(--danger)" onclick="doVoid('expense',${r.id})">作废</button>`:''}
+        ${r.audit_status===2?`<button class="btn-link" onclick="doUnapprove('expense',${r.id})">反审核</button>`:''}
+      </td></tr>`).join('')
+      : '<tr><td colspan="9" class="empty-tip">暂无数据</td></tr>';
+  }catch(e){ tbody.innerHTML='<tr><td colspan="9" style="color:red">加载失败</td></tr>'; }
+}
+
+function newExpense(){
+  const today=new Date().toISOString().substring(0,10);
+  showModal('新建费用单',`
+  <div class="form-grid" style="margin-bottom:8px">
+    <div class="form-row"><label>费用日期</label><input type="date" id="exp_date" value="${today}"></div>
+    <div class="form-row"><label>费用类别</label><select id="exp_category">${expenseCatOpts()}</select></div>
+    <div class="form-row"><label>金额(元)*</label><input id="exp_amount" type="number" step="0.01" min="0" placeholder="0.00"></div>
+    <div class="form-row"><label>付款账户</label><select id="exp_bank">${bankAccountOpts()}</select></div>
+    <div class="form-row"><label>业务人员</label><select id="exp_bp">${userOpts()}</select></div>
+    <div class="form-row"><label>备注</label><input id="exp_rem" placeholder="可选"></div>
+    <div class="form-row" style="grid-column:span 2"><label>执行人</label><input value="${_session?.display_name||''}" disabled style="background:#f5f5f5;color:#999"></div>
+  </div>`,
+  `<button class="btn btn-primary" onclick="saveExpense(0)">保存</button>
+   <button class="btn" onclick="closeModal()">取消</button>`);
+}
+
+async function editExpense(id){
+  try{
+    const d=await get('/expenses/'+id);
+    showModal('编辑费用单 - '+d.expense_no,`
+    <div class="form-grid" style="margin-bottom:8px">
+      <div class="form-row"><label>费用日期</label><input type="date" id="exp_date" value="${d.expense_date||''}"></div>
+      <div class="form-row"><label>费用类别</label><select id="exp_category">${expenseCatOpts(d.category)}</select></div>
+      <div class="form-row"><label>金额(元)*</label><input id="exp_amount" type="number" step="0.01" min="0" value="${d.amount||0}"></div>
+      <div class="form-row"><label>付款账户</label><select id="exp_bank">${bankAccountOpts(d.pay_account_id)}</select></div>
+      <div class="form-row"><label>业务人员</label><select id="exp_bp">${userOpts(d.business_person)}</select></div>
+      <div class="form-row"><label>备注</label><input id="exp_rem" value="${d.remark||''}"></div>
+      <div class="form-row" style="grid-column:span 2"><label>执行人</label><input value="${d.operator||''}" disabled style="background:#f5f5f5;color:#999"></div>
+    </div>`,
+    `<button class="btn btn-primary" onclick="saveExpense(${id})">保存</button>
+     <button class="btn" onclick="closeModal()">取消</button>`);
+  }catch(e){ toast(e.message,'error'); }
+}
+
+async function saveExpense(id){
+  const amount=parseFloat(document.getElementById('exp_amount').value)||0;
+  if(amount<=0){ toast('请输入金额','error'); return; }
+  const body={
+    expense_date: document.getElementById('exp_date').value,
+    category: document.getElementById('exp_category').value,
+    amount: amount,
+    pay_account_id: +document.getElementById('exp_bank').value||0,
+    business_person: document.getElementById('exp_bp').value,
+    remark: document.getElementById('exp_rem').value
+  };
+  try{
+    if(id>0){ await put('/expenses/'+id, body); toast('已保存','success'); }
+    else { await post('/expenses', body); toast('已保存','success'); }
+    closeModal(); loadExpenses();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+async function deleteExpense(id){
+  try{ await del('/expenses/'+id); toast('已删除','success'); loadExpenses(); }
+  catch(e){ toast(e.message,'error'); }
+}
+
+// ══════════════════════════════════════
+// 费用报表（月度）
+// ══════════════════════════════════════
+async function pageExpenseReport(){
+  const c=document.getElementById('content');
+  const y=curYear();
+  const yearOpts=[y,(+y-1),(+y-2)].map(v=>`<option value="${v}">${v} 年</option>`).join('');
+  const monthOpts=Array.from({length:12},(_,i)=>{const mm=String(i+1).padStart(2,'0');return `<option value="${mm}">${i+1} 月</option>`;}).join('');
+  c.innerHTML=`<div class="card">
+  <div class="search-bar">
+    <label style="font-size:13px;color:#666">年份</label>
+    <select id="rep_year" style="width:100px" onchange="loadExpenseReport()">${yearOpts}</select>
+    <label style="font-size:13px;color:#666">月份</label>
+    <select id="rep_month" style="width:100px" onchange="loadExpenseReport()">${monthOpts}</select>
+    <span style="color:#888;font-size:13px;margin-left:8px">左侧为选中月份费用分类明细；右侧全年逐月总额可点击切换月份</span>
+  </div>
+  <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:16px;margin-top:8px">
+    <div>
+      <div class="card-title" style="margin-bottom:8px">📊 本月费用分类明细</div>
+      <div class="table-wrap"><table><thead><tr><th>费用类别</th><th>金额(元)</th></tr></thead>
+        <tbody id="rep-cat-tbody"></tbody>
+        <tfoot id="rep-cat-foot"></tfoot></table></div>
+    </div>
+    <div>
+      <div class="card-title" style="margin-bottom:8px">📅 全年逐月费用总额</div>
+      <div class="table-wrap"><table><thead><tr><th>月份</th><th>费用总额(元)</th></tr></thead>
+        <tbody id="rep-month-tbody"></tbody>
+        <tfoot id="rep-month-foot"></tfoot></table></div>
+    </div>
+  </div></div>`;
+  document.getElementById('rep_month').value = curMonth().substring(5);
+  loadExpenseReport();
+}
+
+async function loadExpenseReport(){
+  const year=document.getElementById('rep_year').value;
+  const mm=document.getElementById('rep_month').value;
+  const month=year+'-'+mm;
+  try{
+    const d=await get('/expense/report',`year=${year}&month=${month}`);
+    const catBody=document.getElementById('rep-cat-tbody');
+    catBody.innerHTML = d.categories.length ? d.categories.map(c=>`<tr>
+      <td>${c.category}</td>
+      <td><b style="color:var(--danger)">${fmtMoney(c.amount)}</b></td></tr>`).join('')
+      : '<tr><td colspan="2" class="empty-tip">本月暂无费用</td></tr>';
+    document.getElementById('rep-cat-foot').innerHTML=`<tr style="font-weight:700;background:#fafafa">
+      <td>合计</td><td style="color:var(--danger)">${fmtMoney(d.total)}</td></tr>`;
+    const mBody=document.getElementById('rep-month-tbody');
+    mBody.innerHTML = d.months.map(m=>{
+      const act = m.month===month ? 'style="background:#e6f0ff;font-weight:700"' : '';
+      return `<tr ${act} onclick="document.getElementById('rep_month').value='${m.month.substring(5)}';loadExpenseReport()" style="cursor:pointer">
+        <td>${m.month}</td><td>${fmtMoney(m.total)}</td></tr>`;
+    }).join('');
+    const yearTotal = d.months.reduce((s,m)=>s+m.total,0);
+    document.getElementById('rep-month-foot').innerHTML=`<tr style="font-weight:700;background:#fafafa">
+      <td>全年合计</td><td style="color:var(--danger)">${fmtMoney(yearTotal)}</td></tr>`;
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// 路由表
+// ══════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// 期末处理（年底封账 / 结转）
+// ══════════════════════════════════════════════════════
+async function pagePeriod(){
+  const c = document.getElementById('content');
+  c.innerHTML = '<div class="card"><div style="text-align:center;padding:30px;color:#aaa">加载中…</div></div>';
+  let d;
+  try{ d = await get('/period/years'); }
+  catch(e){ c.innerHTML = '<div class="card"><div style="color:red">加载失败：'+e.message+'</div></div>'; return; }
+  const cur = d.current_year;
+  const STATUS = {0:'未封账', 1:'已封账', 2:'已封账并结转'};
+  const STATUS_COLOR = {0:'#999', 1:'#faad14', 2:'#52c41a'};
+  const rows = d.years.map(y=>{
+    let ops = '';
+    if(y.status===0){
+      ops = `<button class="btn btn-primary" onclick="periodClose(${y.year})">🔒 封账</button>`;
+    } else if(y.status===1){
+      ops = `<button class="btn" style="color:var(--primary)" onclick="periodCarry(${y.year})">🔄 结转</button>
+             <button class="btn" style="color:var(--danger)" onclick="periodReopen(${y.year})">🔓 反封账</button>`;
+    } else {
+      ops = `<button class="btn" style="color:var(--primary)" onclick="periodOpening(${y.year})">👁 查看期初</button>
+             <button class="btn" style="color:var(--danger)" onclick="periodReopen(${y.year})">🔓 反封账</button>`;
+    }
+    const isCur = y.year===cur ? ' <span style="color:var(--primary);font-size:12px">（本年度）</span>' : '';
+    return `<tr>
+      <td><b>${y.year}</b>${isCur}</td>
+      <td><span style="color:${STATUS_COLOR[y.status]};font-weight:600">${STATUS[y.status]}</span></td>
+      <td>${y.closed_at||'-'}</td>
+      <td>${y.closed_by||'-'}</td>
+      <td>${ops}</td>
+    </tr>`;
+  }).join('');
+  c.innerHTML = `
+  <div class="card" style="max-width:960px">
+    <div style="font-size:16px;font-weight:700;margin-bottom:6px">📅 期末处理（年底封账 / 结转）</div>
+    <div style="color:#888;font-size:13px;margin-bottom:14px;line-height:1.7">
+      <b>封账</b>：锁定某会计年度，禁止再向该年新增 / 修改 / 删除任何业务单据（采购、销售、领用、收付款、费用、发票、盘点）。<br>
+      <b>结转</b>：将封账年度的期末余额生成为下一年度的<b>期初余额</b>（库存 / 应收应付 / 银行账户），便于跨年连续核算。<br>
+      <span style="color:#faad14">提示：建议按年份顺序封账；如需修改已封账年份的数据，请先「反封账」。</span>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>会计年度</th><th>状态</th><th>封账时间</th><th>封账人</th><th>操作</th>
+      </tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#aaa">暂无数据</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+async function periodClose(year){
+  if(!confirm(`确定封账 ${year} 年吗？\n封账后该年所有业务单据将被锁定，无法再新增/修改/删除。`)) return;
+  try{
+    const r = await post('/period/close', {year});
+    if(r.warn_earlier_open && r.warn_earlier_open.length){
+      toast(`已封账 ${year} 年（提醒：更早的 ${r.warn_earlier_open.join('、')} 年尚未封账）`,'success');
+    } else {
+      toast(`已封账 ${year} 年`,'success');
+    }
+    pagePeriod();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+async function periodReopen(year){
+  if(!confirm(`确定对 ${year} 年执行「反封账」吗？\n将解除封账，并清除该年结转产生的下年期初数据。`)) return;
+  try{
+    await post('/period/reopen', {year});
+    toast(`已反封账 ${year} 年`,'success');
+    pagePeriod();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+async function periodCarry(year){
+  if(!confirm(`确定将 ${year} 年的期末余额结转至 ${year+1} 年作为期初吗？`)) return;
+  try{
+    const r = await post('/period/carry-forward', {year});
+    toast(`结转完成：${year}→${year+1} 年（库存 ${r.inventory_items} 项 / 往来 ${r.partner_items} 项 / 银行 ${r.bank_items} 项）`,'success');
+    pagePeriod();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+async function periodOpening(year){
+  let d;
+  try{ d = await get('/period/opening/'+year); }
+  catch(e){ toast('加载期初失败：'+e.message,'error'); return; }
+  const inv = d.inventory, part = d.partners, bank = d.banks;
+  const invHtml = inv.length ? `
+    <div class="table-wrap"><table><thead><tr>
+      <th>商品编码</th><th>名称</th><th>规格/型号</th><th>仓库</th><th>数量</th><th>单位</th><th>单位成本</th><th>总成本</th>
+    </tr></thead><tbody>
+    ${inv.map(r=>`<tr>
+      <td>${r.code||''}</td><td>${r.name||''}</td>
+      <td>${[r.spec,r.model].filter(Boolean).join('/')||'-'}</td>
+      <td>${r.warehouse_name||''}</td>
+      <td>${fmtNum(r.qty)}</td><td>${r.unit||''}</td>
+      <td>${fmtMoney(r.avg_cost)}</td><td>${fmtMoney(r.total_cost)}</td>
+    </tr>`).join('')}
+    </tbody></table></div>` : '<div style="color:#aaa;padding:16px">无库存期初记录</div>';
+  const partHtml = part.length ? `
+    <div class="table-wrap"><table><thead><tr>
+      <th>往来单位</th><th>类型</th><th>余额</th>
+    </tr></thead><tbody>
+    ${part.map(r=>`<tr>
+      <td>${r.partner_name||''}</td>
+      <td>${r.direction===1?'应收(客户)':'应付(供应商)'}</td>
+      <td style="color:${r.balance>=0?'#333':'#ff4d4f'}">${fmtMoney(r.balance)}</td>
+    </tr>`).join('')}
+    </tbody></table></div>` : '<div style="color:#aaa;padding:16px">无往来期初记录</div>';
+  const bankHtml = bank.length ? `
+    <div class="table-wrap"><table><thead><tr>
+      <th>账户</th><th>期初余额</th>
+    </tr></thead><tbody>
+    ${bank.map(r=>`<tr><td>${r.account_name||''}</td><td>${fmtMoney(r.balance)}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div style="color:#aaa;padding:16px">无银行期初记录</div>';
+
+  const body = `
+    <div style="display:flex;gap:8px;margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px">
+      <button class="tab-btn" id="po-tab-inv" onclick="periodSwitchTab('inv')" style="border:none;background:none;cursor:pointer;padding:6px 14px;font-size:14px;border-bottom:2px solid var(--primary);color:var(--primary);font-weight:600">📊 库存期初(${inv.length})</button>
+      <button class="tab-btn" id="po-tab-part" onclick="periodSwitchTab('part')" style="border:none;background:none;cursor:pointer;padding:6px 14px;font-size:14px;color:#666">🤝 往来期初(${part.length})</button>
+      <button class="tab-btn" id="po-tab-bank" onclick="periodSwitchTab('bank')" style="border:none;background:none;cursor:pointer;padding:6px 14px;font-size:14px;color:#666">🏦 银行期初(${bank.length})</button>
+    </div>
+    <div id="po-pane-inv">${invHtml}</div>
+    <div id="po-pane-part" style="display:none">${partHtml}</div>
+    <div id="po-pane-bank" style="display:none">${bankHtml}</div>`;
+  showModal(`${year} 年期初余额`, body, `<button class="btn" onclick="closeModal()">关闭</button>`);
+}
+
+function periodSwitchTab(t){
+  ['inv','part','bank'].forEach(k=>{
+    const p = document.getElementById('po-pane-'+k);
+    if(p) p.style.display = (k===t)?'':'none';
+    const b = document.getElementById('po-tab-'+k);
+    if(b){
+      const on = k===t;
+      b.style.color = on?'var(--primary)':'#666';
+      b.style.borderBottom = on?'2px solid var(--primary)':'none';
+      b.style.fontWeight = on?'600':'400';
+    }
+  });
+}
+
+const pages = {
+  dashboard: pageDashboard,
+  goods: pageGoods,
+  categories: pageCategories,
+  brands: pageBrands,
+  units: pageUnits,
+  partners: pagePartners,
+  warehouses: pageWarehouses,
+  purchase: pagePurchase,
+  sale: pageSale,
+  requisition: pageRequisition,
+  inventory: pageInventory,
+  alert: pageAlert,
+  logs: pageLogs,
+  check: pageCheck,
+  bank_accounts: pageBankAccounts,
+  payment_recv: pagePaymentRecv,
+  payment_pay: pagePaymentPay,
+  reconciliation: pageReconciliation,
+  expense: pageExpense,
+  expense_report: pageExpenseReport,
+  inv_in: pageInvIn,
+  inv_out: pageInvOut,
+  projects: pageProjects,
+  stats: pageStats,
+  system: pageSystem,
+  users: pageUsers,
+  period: pagePeriod
+};
+
+// ══════════════════════════════════════
+// 登录 / 登出
+// ══════════════════════════════════════
+function showLoginOverlay(errMsg=''){
+  document.getElementById('login-overlay').classList.remove('hidden');
+  document.getElementById('login-err').textContent = errMsg;
+  document.getElementById('login-user').value = '';
+  document.getElementById('login-pwd').value = '';
+  setTimeout(()=>document.getElementById('login-user').focus(), 100);
+}
+
+function hideLoginOverlay(){
+  document.getElementById('login-overlay').classList.add('hidden');
+}
+
+async function doLogin(){
+  const username = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-pwd').value;
+  const errEl = document.getElementById('login-err');
+  if(!username){ errEl.textContent='请输入用户名'; return; }
+  if(!password){ errEl.textContent='请输入密码'; return; }
+  errEl.textContent='登录中…';
+  try{
+    const res = await fetch(API+'/auth/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username, password})
+    });
+    const d = await res.json();
+    if(!res.ok){ errEl.textContent = d.detail||'登录失败'; return; }
+    // 登录成功
+    _session = {token: d.token, username: d.username, display_name: d.display_name, role: d.role, permissions: d.permissions||''};
+    localStorage.setItem('wms_token', d.token);
+    localStorage.setItem('wms_session', JSON.stringify(_session));
+    hideLoginOverlay();
+    applySession();
+    pageDashboard();
+  }catch(e){
+    errEl.textContent = '连接服务器失败，请稍候重试';
+  }
+}
+
+async function doLogout(){
+  if(!confirm('确定退出登录？')) return;
+  try{ await fetch(API+'/auth/logout',{method:'POST',headers:{'X-Token':getToken()}}); }catch(e){}
+  localStorage.removeItem('wms_token');
+  localStorage.removeItem('wms_session');
+  _session = null;
+  showLoginOverlay();
+}
+
+function applySession(){
+  if(!_session) return;
+  const roleText = ROLE_LABELS[_session.role] || _session.role;
+  document.getElementById('topbar-uname').textContent = _session.display_name || _session.username;
+  document.getElementById('topbar-urole').textContent = roleText;
+  document.getElementById('topbar-user').style.display = 'flex';
+  // admin 可见「用户管理」
+  document.querySelectorAll('.admin-only').forEach(el=>{
+    el.style.display = _session.role==='admin' ? '' : 'none';
+  });
+  // 按模块权限隐藏菜单（admin 拥有全部模块）
+  if(_session.role === 'admin'){
+    document.querySelectorAll('.nav-item[data-perm]').forEach(el=> el.style.display='');
+  }else{
+    const perms = (_session.permissions||'').split(',').map(s=>s.trim()).filter(Boolean);
+    document.querySelectorAll('.nav-item[data-perm]').forEach(el=>{
+      const m = el.getAttribute('data-perm');
+      el.style.display = perms.includes(m) ? '' : 'none';
+    });
+  }
+  loadUsers();  // 加载用户列表，供业务人员下拉
+}
+
+// ══════════════════════════════════════
+// 初始化：尝试恢复已有 session
+// ══════════════════════════════════════
+(async function init(){
+  const savedSession = localStorage.getItem('wms_session');
+  const savedToken = localStorage.getItem('wms_token');
+  if(savedSession && savedToken){
+    try{
+      const s = JSON.parse(savedSession);
+      _session = {...s, token: savedToken};
+      // 验证 token 有效性
+      const r = await fetch(API+'/auth/me',{headers:{'X-Token':savedToken}});
+      if(r.ok){
+        const me = await r.json();
+        _session.role = me.role;
+        _session.display_name = me.display_name;
+        _session.permissions = me.permissions||'';
+        hideLoginOverlay();
+        applySession();
+        pageDashboard();
+        return;
+      }
+    }catch(e){}
+  }
+  // token 无效或不存在，显示登录页
+  showLoginOverlay();
+})();
+
+// ══════════════════════════════════════
+// 商品档案：导入 / 导出
+// ══════════════════════════════════════
+function exportGoods(){
+  window.open('/api/system/export/goods','_blank');
+}
+function downloadGoodsTemplate(){
+  window.open('/api/system/template/goods','_blank');
+}
+async function importGoods(input){
+  const file = input.files[0];
+  if(!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  input.value = '';
+  toast('正在导入，请稍候…');
+  try{
+    const res = await fetch('/api/system/import/goods',{method:'POST',body:fd});
+    const d = await res.json();
+    if(!res.ok) throw new Error(d.detail||'导入失败');
+    let msg = `导入完成：新增 ${d.added} 条，更新 ${d.updated} 条`;
+    if(d.skipped) msg += `，跳过 ${d.skipped} 条`;
+    toast(msg, d.skipped?'warn':'success');
+    if(d.errors && d.errors.length){
+      console.warn('导入错误:', d.errors);
+      setTimeout(()=>alert('部分行导入失败：\n'+d.errors.slice(0,10).join('\n')),300);
+    }
+    loadGoods(); loadCaches();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// ══════════════════════════════════════
+// 往来单位：导入 / 导出
+// ══════════════════════════════════════
+function exportPartners(){
+  window.open('/api/system/export/partners','_blank');
+}
+function downloadPartnersTemplate(){
+  window.open('/api/system/template/partners','_blank');
+}
+async function importPartners(input){
+  const file = input.files[0];
+  if(!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  input.value = '';
+  toast('正在导入，请稍候…');
+  try{
+    const res = await fetch('/api/system/import/partners',{method:'POST',body:fd});
+    const d = await res.json();
+    if(!res.ok) throw new Error(d.detail||'导入失败');
+    let msg = `导入完成：新增 ${d.added} 条，更新 ${d.updated} 条`;
+    if(d.skipped) msg += `，跳过 ${d.skipped} 条`;
+    toast(msg, d.skipped?'warn':'success');
+    if(d.errors && d.errors.length){
+      console.warn('导入错误:', d.errors);
+      setTimeout(()=>alert('部分行导入失败：\n'+d.errors.slice(0,10).join('\n')),300);
+    }
+    loadPartners(); loadCaches();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// ══════════════════════════════════════
+// 页面：系统管理（备份 + 导入导出中心）
+// ══════════════════════════════════════
+async function pageSystem(){
+  const c = document.getElementById('content');
+  c.innerHTML = `
+  <div class="card" style="max-width:860px">
+    <!-- 数据备份 -->
+    <div style="font-size:16px;font-weight:700;margin-bottom:16px">🗄️ 数据备份</div>
+    <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-primary" onclick="sysBackupCreate()">📦 立即备份</button>
+      <span style="color:#888;font-size:13px">默认保存到程序目录下的 <code>wms_backups/</code></span>
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:13px;color:#666">备份到其他目录</label>
+      <input id="bk_dir" placeholder="留空=默认；或填写绝对路径，如 D:\我的备份" style="width:300px">
+      <button class="btn" onclick="sysBackupCreateToDir()">💾 备份到该目录</button>
+      <button class="btn" onclick="sysBackupExport()" title="通过浏览器下载备份文件，可在保存对话框中选择任意目录">⬇️ 下载备份文件</button>
+    </div>
+    <div style="font-size:12px;color:#aaa;margin-bottom:14px">提示：填写其他目录后系统会记住该路径；「下载备份文件」会弹出浏览器保存对话框，可存到任意位置（如 U 盘、网盘同步文件夹）。</div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>备份文件</th><th>大小</th><th>备份时间</th><th>操作</th>
+      </tr></thead>
+      <tbody id="backup-tbody"><tr><td colspan="4" style="text-align:center;color:#aaa">加载中…</td></tr></tbody>
+      </table>
+    </div>
+
+    <hr style="margin:24px 0;border:none;border-top:1px solid #eee">
+
+    <!-- 导入导出中心 -->
+    <div style="font-size:16px;font-weight:700;margin-bottom:16px">📂 导入 / 导出中心</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+      <!-- 商品档案 -->
+      <div style="border:1px solid #e8e8e8;border-radius:8px;padding:16px">
+        <div style="font-weight:600;margin-bottom:10px">📋 商品档案</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="exportGoods()">⬇️ 导出 CSV</button>
+          <button class="btn" onclick="document.getElementById('sys-goods-import').click()">⬆️ 导入 CSV</button>
+          <input type="file" id="sys-goods-import" accept=".csv" style="display:none" onchange="importGoods(this)">
+          <button class="btn" onclick="downloadGoodsTemplate()" style="color:#888">📄 下载模板</button>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:#aaa">支持新增与更新（按编码匹配），品牌不存在时自动创建</div>
+      </div>
+
+      <!-- 往来单位 -->
+      <div style="border:1px solid #e8e8e8;border-radius:8px;padding:16px">
+        <div style="font-weight:600;margin-bottom:10px">👥 往来单位</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="exportPartners()">⬇️ 导出 CSV</button>
+          <button class="btn" onclick="document.getElementById('sys-partner-import').click()">⬆️ 导入 CSV</button>
+          <input type="file" id="sys-partner-import" accept=".csv" style="display:none" onchange="importPartners(this)">
+          <button class="btn" onclick="downloadPartnersTemplate()" style="color:#888">📄 下载模板</button>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:#aaa">支持新增与更新（按名称匹配），type_name 填：供应商/客户/两者</div>
+      </div>
+    </div>
+  </div>`;
+  loadBackupList();
+  const _sv = localStorage.getItem('wms_backup_dir');
+  if(_sv){ const _el = document.getElementById('bk_dir'); if(_el) _el.value = _sv; }
+}
+
+async function loadBackupList(){
+  const tbody = document.getElementById('backup-tbody');
+  if(!tbody) return;
+  try{
+    const list = await get('/system/backup/list');
+    if(!list || list.length === 0){
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#aaa">暂无备份</td></tr>';
+      return;
+    }
+    tbody.innerHTML = list.map(f=>`
+      <tr>
+        <td style="font-family:monospace">${f.name}</td>
+        <td>${(f.size/1024).toFixed(1)} KB</td>
+        <td>${f.created_at}</td>
+        <td>
+          <a class="btn-link" href="/api/system/backup/download/${encodeURIComponent(f.name)}" download>下载</a>
+          <button class="btn-link" style="color:var(--warning)" onclick="sysBackupRestore('${f.name}')">恢复</button>
+          <button class="btn-link" style="color:var(--danger)" onclick="sysBackupDelete('${f.name}')">删除</button>
+        </td>
+      </tr>`).join('');
+  }catch(e){ tbody.innerHTML='<tr><td colspan="4" style="color:red">加载失败</td></tr>'; }
+}
+
+async function sysBackupCreate(){
+  try{
+    toast('正在备份…');
+    const d = await post('/system/backup/create',{});
+    toast(`备份成功：${d.name}`,'success');
+    loadBackupList();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+async function sysBackupCreateToDir(){
+  const dir = document.getElementById('bk_dir').value.trim();
+  if(!dir){ sysBackupCreate(); return; }
+  try{
+    toast('正在备份…');
+    const d = await post('/system/backup/create?target_dir='+encodeURIComponent(dir),{});
+    localStorage.setItem('wms_backup_dir', dir);
+    toast(`已备份到：${d.path}`,'success');
+    loadBackupList();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+function sysBackupExport(){
+  const a = document.createElement('a');
+  a.href = API + '/system/backup/export';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function sysBackupDelete(name){
+  if(!confirm(`确定删除备份 ${name}？此操作不可恢复`)) return;
+  try{
+    await del('/system/backup/'+encodeURIComponent(name));
+    toast('已删除','success');
+    loadBackupList();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+async function sysBackupRestore(name){
+  if(!confirm(`⚠️ 确定将数据库恢复到备份 "${name}"？\n当前数据将被替换（系统会自动保存一份当前数据库作为恢复前快照）。`)) return;
+  try{
+    toast('正在恢复…');
+    const d = await post('/system/backup/restore/'+encodeURIComponent(name),{});
+    toast(`恢复成功！原数据已备份为 ${d.pre_backup}`,'success');
+    loadBackupList();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// ══════════════════════════════════════
+// 用户管理页面（仅管理员）
+// ══════════════════════════════════════
+async function pageUsers(){
+  if(_session && _session.role !== 'admin'){
+    document.getElementById('content').innerHTML = `
+      <div class="card" style="text-align:center;padding:60px;color:#aaa">
+        <div style="font-size:48px;margin-bottom:16px">🔒</div>
+        <div style="font-size:16px">需要管理员权限才能访问此页面</div>
+      </div>`;
+    return;
+  }
+  const c = document.getElementById('content');
+  c.innerHTML = `
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <span class="card-title" style="margin:0">👤 用户管理</span>
+      <button class="btn btn-primary" onclick="editUser()">➕ 新增用户</button>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>用户名</th><th>显示名</th><th>角色</th><th>状态</th><th>最后登录</th><th>创建时间</th><th>操作</th>
+      </tr></thead>
+      <tbody id="user-tbody"><tr><td colspan="7" style="text-align:center;color:#aaa">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>`;
+  loadUsers();
+}
+
+async function loadUsers(){
+  const tbody = document.getElementById('user-tbody');
+  if(!tbody) return;
+  try{
+    const list = await get('/users');
+    const ROLE_MAP = {admin:'<span class="tag tag-orange">管理员</span>',
+                     operator:'<span class="tag tag-blue" style="background:#e6f7ff;color:#1677ff;border:1px solid #91d5ff">操作员</span>',
+                     viewer:'<span class="tag" style="background:#f5f5f5;color:#888;border:1px solid #d9d9d9">查看员</span>'};
+    tbody.innerHTML = list.map(u=>`
+      <tr>
+        <td><b>${u.username}</b></td>
+        <td>${u.display_name||'-'}</td>
+        <td>${ROLE_MAP[u.role]||u.role}${u.role!=='admin'&&(u.permissions||'')?` <small style="color:#1677ff">(${(u.permissions||'').split(',').filter(Boolean).length}模块)</small>`:''}</td>
+        <td>${u.status?'<span style="color:#52c41a">● 启用</span>':'<span style="color:#aaa">○ 禁用</span>'}</td>
+        <td style="color:#888">${u.last_login?u.last_login.substring(0,16):'-'}</td>
+        <td style="color:#888">${u.created_at?u.created_at.substring(0,10):'-'}</td>
+        <td>
+          <button class="btn-link" onclick="editUser(${JSON.stringify(u).replace(/"/g,'&quot;')})">编辑</button>
+          <button class="btn-link" style="color:var(--danger)" onclick="delUser(${u.id},'${u.username}')">删除</button>
+        </td>
+      </tr>`).join('');
+  }catch(e){ tbody.innerHTML=`<tr><td colspan="7" style="color:red">加载失败：${e.message}</td></tr>`; }
+}
+
+function editUser(u=null){
+  const isEdit = !!u;
+  _editUserPerms = (u && (u.permissions||'').split(',').filter(Boolean)) || [];
+  showModal(isEdit?'编辑用户':'新增用户',`
+    <div class="form-grid">
+      <div class="form-row"><label>用户名</label>
+        <input id="u_username" value="${u?u.username:''}" ${isEdit?'readonly style="background:#f5f5f5"':''} placeholder="登录账号">
+      </div>
+      <div class="form-row"><label>显示名</label>
+        <input id="u_dname" value="${u?u.display_name||'':''}" placeholder="姓名/昵称">
+      </div>
+      <div class="form-row"><label>角色</label>
+        <select id="u_role" onchange="renderPermBox()">
+          <option value="admin" ${u&&u.role==='admin'?'selected':''}>管理员（全权限）</option>
+          <option value="operator" ${!u||u.role==='operator'?'selected':''}>操作员（按模块授权）</option>
+          <option value="viewer" ${u&&u.role==='viewer'?'selected':''}>查看员（按模块授权）</option>
+        </select>
+      </div>
+      <div class="form-row" style="grid-column:span 3"><label>模块权限</label>
+        <div id="perm_box" style="border:1px solid #eee;border-radius:6px;padding:8px 10px;max-height:200px;overflow:auto"></div>
+      </div>
+      <div class="form-row"><label>${isEdit?'新密码':'密码'}</label>
+        <input id="u_pwd" type="password" placeholder="${isEdit?'不填则不修改密码':'至少4位'}">
+      </div>
+      <div class="form-row"><label>状态</label>
+        <select id="u_status">
+          <option value="1" ${!u||u.status===1?'selected':''}>启用</option>
+          <option value="0" ${u&&u.status===0?'selected':''}>禁用</option>
+        </select>
+      </div>
+    </div>  `,
+    `<button class="btn btn-primary" onclick="saveUser(${u?u.id:'null'})">保存</button>
+     <button class="btn" onclick="closeModal()">取消</button>`
+  );
+  renderPermBox();
+}
+
+function renderPermBox(){
+  const box=document.getElementById('perm_box');
+  if(!box) return;
+  const role=document.getElementById('u_role')?.value;
+  if(role==='admin'){
+    box.innerHTML='<span style="color:#888;font-size:13px">管理员拥有全部模块权限，无需单独设置</span>';
+    return;
+  }
+  const perms=_editUserPerms;
+  box.innerHTML=MODULE_LIST.map(([k,label])=>`<label style="display:inline-flex;align-items:center;gap:4px;margin:3px 12px 3px 0;font-size:13px;cursor:pointer"><input type="checkbox" class="perm-chk" value="${k}" ${perms.includes(k)?'checked':''}>${label}</label>`).join('');
+}
+async function saveUser(uid){
+  const username = document.getElementById('u_username').value.trim();
+  const display_name = document.getElementById('u_dname').value.trim();
+  const role = document.getElementById('u_role').value;
+  const pwd = document.getElementById('u_pwd').value;
+  const status = parseInt(document.getElementById('u_status').value);
+  // 仅非管理员需要收集模块权限；管理员权限由后端恒定为全权限
+  let permissions = '';
+  if(role !== 'admin'){
+    permissions = Array.from(document.querySelectorAll('.perm-chk:checked')).map(c=>c.value).join(',');
+  }
+  if(!username){ toast('用户名不能为空','error'); return; }
+  try{
+    if(uid){
+      const body = {display_name, role, status, permissions};
+      if(pwd) body.password = pwd;
+      await put('/users/'+uid, body);
+      toast('更新成功');
+    } else {
+      if(!pwd){ toast('请设置密码','error'); return; }
+      await post('/users', {username, password:pwd, display_name, role, status, permissions});
+      toast('用户创建成功');
+    }
+    closeModal();
+    loadUsers();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+async function delUser(id, username){
+  if(!confirm(`确定删除用户 "${username}"？`)) return;
+  try{
+    await del('/users/'+id);
+    toast('删除成功');
+    loadUsers();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+// ══════════════════════════════════════
+// 修改密码（topbar 或设置里触发）
+// ══════════════════════════════════════
+function showChangePwd(){
+  showModal('修改密码',`
+    <div class="form-grid">
+      <div class="form-row"><label>原密码</label><input id="cp_old" type="password" placeholder="原密码"></div>
+      <div class="form-row"><label>新密码</label><input id="cp_new" type="password" placeholder="至少4位"></div>
+      <div class="form-row"><label>确认密码</label><input id="cp_confirm" type="password" placeholder="再次输入新密码"></div>
+    </div>`,
+    `<button class="btn btn-primary" onclick="doChangePwd()">保存</button>
+     <button class="btn" onclick="closeModal()">取消</button>`
+  );
+}
+async function doChangePwd(){
+  const old_password = document.getElementById('cp_old').value;
+  const new_password = document.getElementById('cp_new').value;
+  const confirm = document.getElementById('cp_confirm').value;
+  if(new_password !== confirm){ toast('两次密码不一致','error'); return; }
+  try{
+    await post('/auth/change_password',{old_password, new_password});
+    toast('密码修改成功，下次登录生效');
+    closeModal();
+  }catch(e){ toast(e.message,'error'); }
+}
+
+</script>
+</body>
+</html>
