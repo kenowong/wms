@@ -153,7 +153,7 @@ def index():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.9.1", "host": WMS_HOST, "port": WMS_PORT}
+    return {"status": "ok", "version": "2.9.2", "host": WMS_HOST, "port": WMS_PORT}
 
 
 # ── PWA 资源（manifest / 图标）：供手机浏览器"添加到主屏幕"安装为 App ──

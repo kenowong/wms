@@ -4,7 +4,7 @@
 ; 或直接用命令行：ISCC.exe installer.iss
 ; ─────────────────────────────────────────────────────────────
 #define MyAppName "进销存管理系统"
-#define MyAppVersion "2.9.1"
+#define MyAppVersion "2.9.2"
 #define MyAppPublisher "WMS"
 #define MyAppURL "http://127.0.0.1:8899"
 #define MyAppExeName "进销存管理系统.exe"

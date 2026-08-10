@@ -3965,7 +3965,7 @@ function blocksToHtml(blocks){
   return (blocks||[]).map(function(b){
     switch(b.type){
       case 'head': return '<div class="pt-head"><div class="pt-company">{{company}}</div><div class="pt-sub">{{company_address}}　{{company_phone}}　{{company_tax_no}}</div><div class="pt-title">{{doc_title}}</div></div>';
-      case 'meta': return '<div class="pt-meta">'+(b.fields||[]).map(function(f){return '<span style="margin-right:18px"><span class="pt-label">'+escHtml(f.label)+'：</span>{{'+f.field+'}}</span>';}).join('')+'</div>';
+      case 'meta': return '<div class="pt-meta">'+(b.fields||[]).map(function(f){return '<span class="pt-ml" style="margin-right:18px" data-label="'+escAttr(f.label)+'" data-field="'+f.field+'">'+escHtml(f.label)+'：{{'+f.field+'}}</span>';}).join('')+'</div>';
       case 'text': return '<div style="margin:6px 0;font-size:13px;line-height:1.7">'+escHtml(b.text||'')+'</div>';
       case 'field': return '<div class="pt-info"><span class="pt-label">'+escHtml(b.label)+'：</span>{{'+b.field+'}}</div>';
       case 'items': return '<div class="pt-items">{{items}}</div>';
@@ -3987,7 +3987,7 @@ function parseHtmlToBlocks(html){
     else if(cls.indexOf('pt-remark')>=0){ if(node.innerHTML.indexOf('{{remark}}')>=0) out.push({type:'remark'}); else out.push({type:'text', text:node.textContent||''}); }
     else if(cls.indexOf('pt-foot')>=0){ const sp=node.querySelectorAll('span'); out.push({type:'foot', left:sp[0]?sp[0].innerHTML:'', right:sp[1]?sp[1].innerHTML:''}); }
     else if(cls.indexOf('pt-items')>=0){ out.push({type:'items'}); }
-    else if(cls.indexOf('pt-meta')>=0){ const fields=[]; const re=/([^：:]*?)[：:]\s*\{\{\s*(\w+)\s*\}\}/g; let mm; while((mm=re.exec(node.innerHTML))){ fields.push({label:(mm[1].replace(/<[^>]+>/g,'')||'字段').trim(), field:mm[2]}); } if(fields.length) out.push({type:'meta', fields:fields}); else out.push({type:'text', text:node.textContent||''}); }
+    else if(cls.indexOf('pt-meta')>=0){ const fields=[]; const mls=node.querySelectorAll?node.querySelectorAll('.pt-ml'):[]; if(mls&&mls.length){ Array.prototype.forEach.call(mls, function(sp){ fields.push({label:sp.getAttribute('data-label')||sp.textContent.split('：')[0]||'字段', field:sp.getAttribute('data-field')||extractField(sp.innerHTML)||''}); }); } else { const re=/([^：:]*?)[：:]\s*\{\{\s*(\w+)\s*\}\}/g; let mm; while((mm=re.exec(node.innerHTML))){ fields.push({label:(mm[1].replace(/<[^>]+>/g,'')||'字段').trim(), field:mm[2]}); } } if(fields.length) out.push({type:'meta', fields:fields}); else out.push({type:'text', text:node.textContent||''}); }
     else if(cls.indexOf('pt-info')>=0){ out.push({type:'field', label:(txt.split('：')[0]||'字段').replace(/：/g,''), field:extractField(node.innerHTML)||''}); }
     else { const f=extractField(node.innerHTML); if(f) out.push({type:'field', label:cleanLabel(txt), field:f}); else out.push({type:'text', text:node.textContent||''}); }
   }
@@ -4035,10 +4035,10 @@ async function editPrintTemplate(dt){
       <style>
         .pted-wrap{display:flex;gap:12px}
         .pted-pan{width:140px;flex:none;border:1px solid #eee;border-radius:8px;padding:8px;background:#fafafa}
-        .pted-pan .pted-comp{background:#fff;border:1px solid #d9d9d9;border-radius:6px;padding:8px;margin-bottom:8px;font-size:13px;cursor:grab;text-align:center}
+        .pted-pan .pted-comp{background:#fff;border:1px solid #d9d9d9;border-radius:6px;padding:8px;margin-bottom:8px;font-size:13px;cursor:grab;text-align:center;user-select:none;-webkit-user-select:none;touch-action:none}
         .pted-pan .pted-comp:hover{border-color:#409eff;color:#409eff}
         .pted-canvas{flex:1;border:1px dashed #ccc;border-radius:8px;padding:10px;min-height:340px;background:#fff;overflow:auto}
-        .pted-block{border:1px solid #e3e3e3;border-radius:6px;padding:8px 42px 8px 10px;margin-bottom:8px;background:#fff;cursor:grab;position:relative}
+        .pted-block{border:1px solid #e3e3e3;border-radius:6px;padding:8px 42px 8px 10px;margin-bottom:8px;background:#fff;cursor:grab;position:relative;user-select:none;-webkit-user-select:none;touch-action:none}
         .pted-block.sel{border-color:#409eff;box-shadow:0 0 0 2px rgba(64,158,255,.15)}
         .pted-block .pted-bar{position:absolute;right:6px;top:6px;display:flex;gap:4px}
         .pted-block .pted-sum{font-size:12px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -4056,16 +4056,16 @@ async function editPrintTemplate(dt){
       <div class="pted-wrap">
         <div class="pted-pan">
           <div style="font-size:12px;color:#888;margin-bottom:6px">组件</div>
-          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'head')">抬头</div>
-          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'meta')">信息行</div>
-          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'text')">文本</div>
-          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'field')">字段</div>
-          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'items')">明细表</div>
-          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'total')">合计</div>
-          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'remark')">备注</div>
-          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'foot')">页脚</div>
+          <div class="pted-comp" title="拖到画布或点击添加" onpointerdown="ptedStartDrag(event,'new','head')">抬头</div>
+          <div class="pted-comp" title="拖到画布或点击添加" onpointerdown="ptedStartDrag(event,'new','meta')">信息行</div>
+          <div class="pted-comp" title="拖到画布或点击添加" onpointerdown="ptedStartDrag(event,'new','text')">文本</div>
+          <div class="pted-comp" title="拖到画布或点击添加" onpointerdown="ptedStartDrag(event,'new','field')">字段</div>
+          <div class="pted-comp" title="拖到画布或点击添加" onpointerdown="ptedStartDrag(event,'new','items')">明细表</div>
+          <div class="pted-comp" title="拖到画布或点击添加" onpointerdown="ptedStartDrag(event,'new','total')">合计</div>
+          <div class="pted-comp" title="拖到画布或点击添加" onpointerdown="ptedStartDrag(event,'new','remark')">备注</div>
+          <div class="pted-comp" title="拖到画布或点击添加" onpointerdown="ptedStartDrag(event,'new','foot')">页脚</div>
         </div>
-        <div class="pted-canvas" id="pted_canvas" ondragover="ptedCanvasOver(event)" ondrop="ptedCanvasDrop(event)"></div>
+        <div class="pted-canvas" id="pted_canvas"></div>
         <div class="pted-props" id="pted_props"></div>
       </div>
       <div style="margin-top:12px;font-size:13px;font-weight:600">实时预览</div>
@@ -4082,7 +4082,7 @@ function ptedRender(){
   const st=window._pted; if(!st)return;
   const cv=document.getElementById('pted_canvas');
   if(cv) cv.innerHTML = st.blocks.length ? st.blocks.map(function(b,i){
-    return '<div class="pted-block '+(i===st.sel?'sel':'')+'" draggable="true" ondragstart="ptedDragMove(event,'+i+')" ondragover="ptedBlockOver(event,'+i+')" ondrop="ptedBlockDrop(event,'+i+')" onclick="ptedSelect('+i+')"><div class="pted-bar"><button class="btn" onclick="event.stopPropagation();ptedMove('+i+',-1)">▲</button><button class="btn" onclick="event.stopPropagation();ptedMove('+i+',1)">▼</button><button class="btn" onclick="event.stopPropagation();ptedRemove('+i+')">✕</button></div><div class="pted-sum">'+escHtml(ptedSummary(b))+'</div></div>';
+    return '<div class="pted-block '+(i===st.sel?'sel':'')+'" onpointerdown="ptedStartDrag(event,\'move\','+i+')" onclick="ptedSelect('+i+')"><div class="pted-bar"><button class="btn" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();ptedMove('+i+',-1)">▲</button><button class="btn" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();ptedMove('+i+',1)">▼</button><button class="btn" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();ptedRemove('+i+')">✕</button></div><div class="pted-sum">'+escHtml(ptedSummary(b))+'</div></div>';
   }).join('') : '<div style="color:#bbb;text-align:center;padding:40px">从左侧拖入组件开始搭建</div>';
   ptedRenderProps();
   ptedRenderPreview();
@@ -4116,17 +4116,53 @@ function ptedRenderPreview(){
   data.doc_title = tEl?tEl.value:(PRINT_DOC_TYPES[st.dt]||st.dt);
   pv.innerHTML = fillPrintTemplate(content, data);
 }
-function ptedSelect(i){ window._pted.sel=i; ptedRender(); }
+function ptedSelect(i){ if(window._ptedClickGuard){ window._ptedClickGuard=false; return; } window._pted.sel=i; ptedRender(); }
 function ptedMove(i,dir){ const st=window._pted; const to=i+dir; if(to<0||to>=st.blocks.length)return; moveBlock(i,to); }
 function ptedRemove(i){ const st=window._pted; st.blocks.splice(i,1); if(st.sel===i)st.sel=-1; else if(st.sel>i)st.sel--; ptedRender(); }
 function insertBlock(type,at){ const st=window._pted; const b=newBlock(type); if(at<0||at>st.blocks.length)at=st.blocks.length; st.blocks.splice(at,0,b); st.sel=at; ptedRender(); }
 function moveBlock(from,to){ const st=window._pted; if(from<0||from>=st.blocks.length)return; const x=st.blocks.splice(from,1)[0]; if(to>from)to--; if(to<0)to=0; if(to>st.blocks.length)to=st.blocks.length; st.blocks.splice(to,0,x); st.sel=to; ptedRender(); }
-function ptedDragNew(e,type){ e.dataTransfer.setData('text/pted','new:'+type); e.dataTransfer.effectAllowed='copy'; }
-function ptedDragMove(e,i){ e.dataTransfer.setData('text/pted','move:'+i); e.dataTransfer.effectAllowed='move'; }
-function ptedCanvasOver(e){ e.preventDefault(); }
-function ptedCanvasDrop(e){ e.preventDefault(); const d=e.dataTransfer.getData('text/pted'); if(!d)return; const st=window._pted; if(d.indexOf('new:')===0) insertBlock(d.slice(4), st.blocks.length); else if(d.indexOf('move:')===0) moveBlock(parseInt(d.slice(5),10), st.blocks.length); }
-function ptedBlockOver(e,i){ e.preventDefault(); e.stopPropagation(); }
-function ptedBlockDrop(e,i){ e.preventDefault(); e.stopPropagation(); const d=e.dataTransfer.getData('text/pted'); if(!d)return; const st=window._pted; if(d.indexOf('new:')===0) insertBlock(d.slice(4), i); else if(d.indexOf('move:')===0) moveBlock(parseInt(d.slice(5),10), i); }
+let _ptedDrag=null;
+function ptedCompName(t){ const m={head:'抬头',meta:'信息行',text:'文本',field:'字段',items:'明细表',total:'合计',remark:'备注',foot:'页脚'}; return m[t]||t; }
+function ptedStartDrag(e, kind, val){
+  if(e.button!==undefined && e.button!==0) return;
+  e.preventDefault();
+  const ghost=document.createElement('div');
+  ghost.id='pted_ghost';
+  ghost.style.cssText='position:fixed;z-index:99999;pointer-events:none;background:#409eff;color:#fff;padding:6px 10px;border-radius:6px;font-size:13px;opacity:.92;box-shadow:0 2px 8px rgba(0,0,0,.2)';
+  ghost.textContent = kind==='new' ? ('添加 '+ptedCompName(val)) : '移动区块';
+  document.body.appendChild(ghost);
+  _ptedDrag={kind:kind, val:String(val), ghost:ghost, moved:false, sx:e.clientX, sy:e.clientY};
+  document.addEventListener('pointermove', ptedDragMove);
+  document.addEventListener('pointerup', ptedDragEnd);
+}
+function ptedDragMove(e){
+  if(!_ptedDrag)return;
+  if(Math.abs(e.clientX-_ptedDrag.sx)>4 || Math.abs(e.clientY-_ptedDrag.sy)>4) _ptedDrag.moved=true;
+  _ptedDrag.ghost.style.left=(e.clientX+10)+'px';
+  _ptedDrag.ghost.style.top=(e.clientY+10)+'px';
+}
+function ptedDragEnd(e){
+  if(!_ptedDrag)return;
+  const d=_ptedDrag; const st=window._pted; const canvas=document.getElementById('pted_canvas');
+  const el=document.elementFromPoint(e.clientX, e.clientY);
+  let insertAt=st.blocks.length;
+  if(canvas && el && canvas.contains(el)){
+    let bEl=el;
+    while(bEl && bEl!==canvas && !(bEl.classList && bEl.classList.contains('pted-block'))) bEl=bEl.parentElement;
+    if(bEl && bEl.classList && bEl.classList.contains('pted-block')){
+      const idx=Array.prototype.indexOf.call(canvas.children, bEl);
+      const r=bEl.getBoundingClientRect();
+      insertAt = (e.clientY < r.top + r.height/2) ? idx : idx+1;
+    }
+    if(d.kind==='new') insertBlock(d.val, insertAt);
+    else { moveBlock(parseInt(d.val,10), insertAt); if(d.moved) window._ptedClickGuard=true; }
+  } else if(d.kind==='new' && !d.moved){
+    insertBlock(d.val, st.blocks.length);
+  }
+  d.ghost.remove(); _ptedDrag=null;
+  document.removeEventListener('pointermove', ptedDragMove);
+  document.removeEventListener('pointerup', ptedDragEnd);
+}
 function ptedSet(i,key,val){ const st=window._pted; st.blocks[i][key]=val; if(key==='text'||key==='left'||key==='right') ptedRenderPreview(); else ptedRender(); }
 function ptedMetaField(bi,i,key,val){ const st=window._pted; if(!st.blocks[bi].fields)st.blocks[bi].fields=[]; st.blocks[bi].fields[i][key]=val; if(key==='label') ptedRenderPreview(); else ptedRender(); }
 function ptedMetaAdd(bi){ const st=window._pted; if(!st.blocks[bi].fields)st.blocks[bi].fields=[]; st.blocks[bi].fields.push({label:'新字段',field:'doc_no'}); ptedRender(); }
