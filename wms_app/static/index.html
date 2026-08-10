@@ -3919,53 +3919,230 @@ async function loadPrintTemplateList(){
   }catch(e){ if(el) el.innerHTML = '<span style="color:red">加载失败</span>'; }
 }
 
+// ── 拖拽式打印模板编辑器 ─────────────────────────────
+let PTED_FIELDS = [
+  {k:'doc_no',t:'单号'},{k:'doc_date',t:'日期'},{k:'doc_title',t:'单据标题'},{k:'partner',t:'往来单位'},
+  {k:'operator',t:'经手人'},{k:'project_name',t:'项目'},{k:'warehouse_name',t:'仓库'},
+  {k:'business_person',t:'业务员'},{k:'amount',t:'金额'},{k:'total_amount',t:'总金额'},{k:'fee',t:'费用'},
+  {k:'tax_amount',t:'税额'},{k:'untax_amount',t:'未税金额'},{k:'tax_rate',t:'税率'},
+  {k:'balance_amount',t:'余额'},{k:'total_order_amount',t:'应收/付总额'},{k:'total_paid_amount',t:'已收/付金额'},
+  {k:'gross_profit',t:'毛利'},{k:'total_cost',t:'总成本'},{k:'invoice_code',t:'发票代码'},
+  {k:'invoice_type',t:'发票类型'},{k:'status',t:'状态'},{k:'category',t:'费用类别'},
+  {k:'pay_account_name',t:'付款账户'},{k:'bank_account_name',t:'银行户名'},{k:'pay_type_label',t:'收/付款类型'},
+  {k:'recon_type_label',t:'对账类型'},{k:'period_start',t:'期间起'},{k:'period_end',t:'期间止'},
+  {k:'applicant',t:'申请人'},{k:'company',t:'公司名称'},{k:'company_address',t:'公司地址'},
+  {k:'company_phone',t:'公司电话'},{k:'company_tax_no',t:'税号'},{k:'remark',t:'备注'},{k:'print_time',t:'打印时间'}
+];
+function FIELD_OPTS(sel){
+  return PTED_FIELDS.map(function(f){return '<option value="'+f.k+'"'+(f.k===sel?' selected':'')+'>'+f.t+'</option>';}).join('');
+}
+function extractField(inner){ const m=String(inner||'').match(/\{\{\s*(\w+)\s*\}\}/); return m?m[1]:null; }
+function cleanLabel(txt){ return String(txt||'').replace(/\{\{[^}]+\}\}/g,'').replace(/[：:\s]/g,'').slice(0,8)||'字段'; }
+function newBlock(type){
+  switch(type){
+    case 'head': return {type:'head'};
+    case 'meta': return {type:'meta', fields:[{label:'项目',field:'project_name'}]};
+    case 'text': return {type:'text', text:'说明文字（可修改）'};
+    case 'field': return {type:'field', label:'字段', field:'doc_no'};
+    case 'items': return {type:'items'};
+    case 'total': return {type:'total', label:'合计金额', field:'amount'};
+    case 'remark': return {type:'remark'};
+    case 'foot': return {type:'foot', left:'制单：{{operator}}', right:'打印时间：{{print_time}}'};
+  }
+  return {type:'text', text:''};
+}
+function defaultBlocksFor(dt){
+  return [
+    {type:'head'},
+    {type:'meta', fields:[{label:'单号',field:'doc_no'},{label:'日期',field:'doc_date'},{label:'往来单位',field:'partner'},{label:'经手人',field:'operator'}]},
+    {type:'items'},
+    {type:'total', label:'合计金额', field:'amount'},
+    {type:'remark'},
+    {type:'foot', left:'制单：{{operator}}', right:'打印时间：{{print_time}}'}
+  ];
+}
+function blocksToHtml(blocks){
+  return (blocks||[]).map(function(b){
+    switch(b.type){
+      case 'head': return '<div class="pt-head"><div class="pt-company">{{company}}</div><div class="pt-sub">{{company_address}}　{{company_phone}}　{{company_tax_no}}</div><div class="pt-title">{{doc_title}}</div></div>';
+      case 'meta': return '<div class="pt-meta">'+(b.fields||[]).map(function(f){return '<span style="margin-right:18px"><span class="pt-label">'+escHtml(f.label)+'：</span>{{'+f.field+'}}</span>';}).join('')+'</div>';
+      case 'text': return '<div style="margin:6px 0;font-size:13px;line-height:1.7">'+escHtml(b.text||'')+'</div>';
+      case 'field': return '<div class="pt-info"><span class="pt-label">'+escHtml(b.label)+'：</span>{{'+b.field+'}}</div>';
+      case 'items': return '<div class="pt-items">{{items}}</div>';
+      case 'total': return '<div class="pt-total">'+escHtml(b.label)+'：{{'+b.field+'}}</div>';
+      case 'remark': return '<div class="pt-remark">备注：{{remark}}</div>';
+      case 'foot': return '<div class="pt-foot"><span>'+escHtml(b.left||'')+'</span><span>'+escHtml(b.right||'')+'</span></div>';
+    }
+    return '';
+  }).join('\n');
+}
+function parseHtmlToBlocks(html){
+  const tmp = document.createElement('div'); tmp.innerHTML = html||'';
+  const out = []; const consumed = new Set();
+  function pushNode(node){
+    const cls = node.className||''; const txt = node.textContent||'';
+    if(cls.indexOf('pt-head')>=0){ out.push({type:'head'}); }
+    else if(node.tagName==='TABLE' && cls.indexOf('ptb')>=0){ out.push({type:'items'}); }
+    else if(cls.indexOf('pt-total')>=0){ out.push({type:'total', label:(txt.split('：')[0]||'合计').replace(/：/g,''), field:extractField(node.innerHTML)||'amount'}); }
+    else if(cls.indexOf('pt-remark')>=0){ if(node.innerHTML.indexOf('{{remark}}')>=0) out.push({type:'remark'}); else out.push({type:'text', text:node.textContent||''}); }
+    else if(cls.indexOf('pt-foot')>=0){ const sp=node.querySelectorAll('span'); out.push({type:'foot', left:sp[0]?sp[0].innerHTML:'', right:sp[1]?sp[1].innerHTML:''}); }
+    else if(cls.indexOf('pt-items')>=0){ out.push({type:'items'}); }
+    else if(cls.indexOf('pt-meta')>=0){ const fields=[]; const re=/([^：:]*?)[：:]\s*\{\{\s*(\w+)\s*\}\}/g; let mm; while((mm=re.exec(node.innerHTML))){ fields.push({label:(mm[1].replace(/<[^>]+>/g,'')||'字段').trim(), field:mm[2]}); } if(fields.length) out.push({type:'meta', fields:fields}); else out.push({type:'text', text:node.textContent||''}); }
+    else if(cls.indexOf('pt-info')>=0){ out.push({type:'field', label:(txt.split('：')[0]||'字段').replace(/：/g,''), field:extractField(node.innerHTML)||''}); }
+    else { const f=extractField(node.innerHTML); if(f) out.push({type:'field', label:cleanLabel(txt), field:f}); else out.push({type:'text', text:node.textContent||''}); }
+  }
+  function walk(nodes){
+    Array.prototype.forEach.call(nodes, function(node){
+      if(consumed.has(node)) return;
+      const cls = node.className||'';
+      const sem = (cls.indexOf('pt-head')>=0) || (node.tagName==='TABLE' && cls.indexOf('ptb')>=0)
+        || (cls.indexOf('pt-total')>=0) || (cls.indexOf('pt-remark')>=0) || (cls.indexOf('pt-foot')>=0)
+        || (cls.indexOf('pt-meta')>=0) || (cls.indexOf('pt-info')>=0) || (cls.indexOf('pt-items')>=0);
+      if(sem){
+        consumed.add(node);
+        if(node.querySelectorAll) Array.prototype.forEach.call(node.querySelectorAll('*'), function(d){ consumed.add(d); });
+        pushNode(node);
+      } else if(node.children && node.children.length){
+        walk(node.children);
+      }
+    });
+  }
+  walk(tmp.children);
+  return out;
+}
+function ptedSummary(b){
+  switch(b.type){
+    case 'head': return '抬头（公司名称 + 地址/电话/税号 + 单据标题）';
+    case 'meta': return '信息行：'+((b.fields||[]).map(function(f){return f.label;}).join('、')||'（空）');
+    case 'text': return '文本：'+(b.text||'').slice(0,20);
+    case 'field': return b.label+'：{{'+b.field+'}}';
+    case 'items': return '明细表（{{items}}）';
+    case 'total': return b.label+'：{{'+b.field+'}}';
+    case 'remark': return '备注（{{remark}}）';
+    case 'foot': return '页脚';
+  }
+  return b.type;
+}
 async function editPrintTemplate(dt){
   try{
     const [tpl, co] = await Promise.all([get('/print/template/'+dt), get('/system/company')]);
     _companyInfo = co || {};
+    let blocks;
+    try{ blocks = parseHtmlToBlocks(tpl.content); }catch(e){ blocks = []; }
+    if(!blocks || !blocks.length) blocks = defaultBlocksFor(dt);
+    window._pted = { dt: dt, title: tpl.title, blocks: blocks, sel: -1 };
     showModal('编辑打印模板 - '+tpl.title, `
-      <div style="margin-bottom:8px;font-size:12px;color:#888">使用 {{字段名}} 占位符，{{items}} 渲染明细表。可点「预览打印」查看实际效果。</div>
+      <style>
+        .pted-wrap{display:flex;gap:12px}
+        .pted-pan{width:140px;flex:none;border:1px solid #eee;border-radius:8px;padding:8px;background:#fafafa}
+        .pted-pan .pted-comp{background:#fff;border:1px solid #d9d9d9;border-radius:6px;padding:8px;margin-bottom:8px;font-size:13px;cursor:grab;text-align:center}
+        .pted-pan .pted-comp:hover{border-color:#409eff;color:#409eff}
+        .pted-canvas{flex:1;border:1px dashed #ccc;border-radius:8px;padding:10px;min-height:340px;background:#fff;overflow:auto}
+        .pted-block{border:1px solid #e3e3e3;border-radius:6px;padding:8px 42px 8px 10px;margin-bottom:8px;background:#fff;cursor:grab;position:relative}
+        .pted-block.sel{border-color:#409eff;box-shadow:0 0 0 2px rgba(64,158,255,.15)}
+        .pted-block .pted-bar{position:absolute;right:6px;top:6px;display:flex;gap:4px}
+        .pted-block .pted-sum{font-size:12px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .pted-props{width:235px;flex:none;border:1px solid #eee;border-radius:8px;padding:10px;background:#fafafa;font-size:13px}
+        .pted-props label{display:block;font-size:12px;color:#888;margin:8px 0 3px}
+        .pted-props input,.pted-props select,.pted-props textarea{width:100%;padding:5px 6px;border:1px solid #d9d9d9;border-radius:5px;box-sizing:border-box;font-size:13px}
+        .pted-props .pted-frow{display:flex;gap:4px;margin-bottom:6px}
+      </style>
+      <div style="margin-bottom:8px;font-size:12px;color:#888">从左侧把组件拖到中间画布搭建模板；点击画布区块可选中并在右侧编辑；可拖动或用 ▲▼ 调整顺序。</div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <label style="font-size:13px;white-space:nowrap">模板标题</label>
         <input id="ptpl_title" value="${escAttr(tpl.title)}" style="flex:1">
+        <button class="btn" onclick="ptedReset()">↺ 重置布局</button>
       </div>
-      <textarea id="ptpl_content" style="width:100%;height:300px;font-family:Consolas,Menlo,monospace;font-size:12px;padding:8px;border:1px solid #d9d9d9;border-radius:6px;box-sizing:border-box">${escHtml(tpl.content)}</textarea>
+      <div class="pted-wrap">
+        <div class="pted-pan">
+          <div style="font-size:12px;color:#888;margin-bottom:6px">组件</div>
+          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'head')">抬头</div>
+          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'meta')">信息行</div>
+          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'text')">文本</div>
+          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'field')">字段</div>
+          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'items')">明细表</div>
+          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'total')">合计</div>
+          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'remark')">备注</div>
+          <div class="pted-comp" draggable="true" ondragstart="ptedDragNew(event,'foot')">页脚</div>
+        </div>
+        <div class="pted-canvas" id="pted_canvas" ondragover="ptedCanvasOver(event)" ondrop="ptedCanvasDrop(event)"></div>
+        <div class="pted-props" id="pted_props"></div>
+      </div>
       <div style="margin-top:12px;font-size:13px;font-weight:600">实时预览</div>
-      <div id="ptpl_preview" style="border:1px dashed #ccc;padding:12px;background:#fff;max-height:340px;overflow:auto"></div>
+      <div id="ptpl_preview" style="border:1px dashed #ccc;padding:12px;background:#fff;max-height:340px;overflow:auto;margin-top:6px"></div>
     `,
     `<button class="btn" onclick="closeModal()">关闭</button>
      <button class="btn" onclick="previewPrintTemplate('${dt}')">👁 预览打印</button>
      <button class="btn btn-primary" onclick="savePrintTemplate('${dt}')">💾 保存模板</button>`);
-    const ta = document.getElementById('ptpl_content');
-    if(ta) ta.addEventListener('input', ()=>renderPrintPreview(dt));
-    renderPrintPreview(dt);
+    ptedRender();
   }catch(e){ toast(e.message, 'error'); }
 }
-
-function renderPrintPreview(dt){
-  const ta = document.getElementById('ptpl_content');
-  const titleEl = document.getElementById('ptpl_title');
-  if(!ta) return;
-  const data = getPrintData(dt, getSamplePrintData(dt));
-  data.doc_title = titleEl ? titleEl.value : (PRINT_DOC_TYPES[dt] || dt);
-  const html = fillPrintTemplate(ta.value, data);
-  const pv = document.getElementById('ptpl_preview');
-  if(pv) pv.innerHTML = html;
+function ptedReset(){ const st=window._pted; if(!st)return; st.blocks=defaultBlocksFor(st.dt); st.sel=-1; ptedRender(); }
+function ptedRender(){
+  const st=window._pted; if(!st)return;
+  const cv=document.getElementById('pted_canvas');
+  if(cv) cv.innerHTML = st.blocks.length ? st.blocks.map(function(b,i){
+    return '<div class="pted-block '+(i===st.sel?'sel':'')+'" draggable="true" ondragstart="ptedDragMove(event,'+i+')" ondragover="ptedBlockOver(event,'+i+')" ondrop="ptedBlockDrop(event,'+i+')" onclick="ptedSelect('+i+')"><div class="pted-bar"><button class="btn" onclick="event.stopPropagation();ptedMove('+i+',-1)">▲</button><button class="btn" onclick="event.stopPropagation();ptedMove('+i+',1)">▼</button><button class="btn" onclick="event.stopPropagation();ptedRemove('+i+')">✕</button></div><div class="pted-sum">'+escHtml(ptedSummary(b))+'</div></div>';
+  }).join('') : '<div style="color:#bbb;text-align:center;padding:40px">从左侧拖入组件开始搭建</div>';
+  ptedRenderProps();
+  ptedRenderPreview();
 }
-
+function ptedRenderProps(){
+  const st=window._pted; const pe=document.getElementById('pted_props'); if(!pe)return;
+  const b=st.blocks[st.sel];
+  if(!b){ pe.innerHTML='<div style="color:#bbb">选中画布中的区块，可在此编辑其属性</div>'; return; }
+  let h='';
+  if(b.type==='head'){ h='<div style="color:#888;line-height:1.6">抬头区包含公司名称、地址、电话、税号与单据标题，打印时自动填充，无需配置。</div>'; }
+  else if(b.type==='items'){ h='<div style="color:#888;line-height:1.6">明细表自动渲染商品明细行（序号/名称/规格/单位/数量/单价/金额）。</div>'; }
+  else if(b.type==='remark'){ h='<div style="color:#888;line-height:1.6">显示“备注：”及备注内容。</div>'; }
+  else if(b.type==='meta'){
+    h='<label>信息行字段（标签 + 数据）</label>';
+    h+=(b.fields||[]).map(function(f,i){
+      return '<div class="pted-frow"><input value="'+escAttr(f.label)+'" oninput="ptedMetaField('+st.sel+','+i+',\'label\',this.value)"><select onchange="ptedMetaField('+st.sel+','+i+',\'field\',this.value)">'+FIELD_OPTS(f.field)+'</select><button class="btn" onclick="ptedMetaDel('+st.sel+','+i+')">✕</button></div>';
+    }).join('');
+    h+='<button class="btn" onclick="ptedMetaAdd('+st.sel+')">＋ 加字段</button>';
+  }
+  else if(b.type==='text'){ h='<label>文本内容</label><textarea style="height:80px" oninput="ptedSet('+st.sel+',\'text\',this.value)">'+escHtml(b.text||'')+'</textarea>'; }
+  else if(b.type==='field'){ h='<label>标签</label><input value="'+escAttr(b.label)+'" oninput="ptedSet('+st.sel+',\'label\',this.value)"><label>数据字段</label><select onchange="ptedSet('+st.sel+',\'field\',this.value)">'+FIELD_OPTS(b.field)+'</select>'; }
+  else if(b.type==='total'){ h='<label>标签</label><input value="'+escAttr(b.label)+'" oninput="ptedSet('+st.sel+',\'label\',this.value)"><label>金额字段</label><select onchange="ptedSet('+st.sel+',\'field\',this.value)">'+FIELD_OPTS(b.field)+'</select>'; }
+  else if(b.type==='foot'){ h='<label>左侧（支持占位符）</label><input value="'+escAttr(b.left||'')+'" oninput="ptedSet('+st.sel+',\'left\',this.value)"><label>右侧（支持占位符）</label><input value="'+escAttr(b.right||'')+'" oninput="ptedSet('+st.sel+',\'right\',this.value)">'; }
+  pe.innerHTML=h;
+}
+function ptedRenderPreview(){
+  const st=window._pted; const pv=document.getElementById('ptpl_preview'); if(!pv||!st)return;
+  const content=blocksToHtml(st.blocks);
+  const data=getPrintData(st.dt, getSamplePrintData(st.dt));
+  const tEl=document.getElementById('ptpl_title');
+  data.doc_title = tEl?tEl.value:(PRINT_DOC_TYPES[st.dt]||st.dt);
+  pv.innerHTML = fillPrintTemplate(content, data);
+}
+function ptedSelect(i){ window._pted.sel=i; ptedRender(); }
+function ptedMove(i,dir){ const st=window._pted; const to=i+dir; if(to<0||to>=st.blocks.length)return; moveBlock(i,to); }
+function ptedRemove(i){ const st=window._pted; st.blocks.splice(i,1); if(st.sel===i)st.sel=-1; else if(st.sel>i)st.sel--; ptedRender(); }
+function insertBlock(type,at){ const st=window._pted; const b=newBlock(type); if(at<0||at>st.blocks.length)at=st.blocks.length; st.blocks.splice(at,0,b); st.sel=at; ptedRender(); }
+function moveBlock(from,to){ const st=window._pted; if(from<0||from>=st.blocks.length)return; const x=st.blocks.splice(from,1)[0]; if(to>from)to--; if(to<0)to=0; if(to>st.blocks.length)to=st.blocks.length; st.blocks.splice(to,0,x); st.sel=to; ptedRender(); }
+function ptedDragNew(e,type){ e.dataTransfer.setData('text/pted','new:'+type); e.dataTransfer.effectAllowed='copy'; }
+function ptedDragMove(e,i){ e.dataTransfer.setData('text/pted','move:'+i); e.dataTransfer.effectAllowed='move'; }
+function ptedCanvasOver(e){ e.preventDefault(); }
+function ptedCanvasDrop(e){ e.preventDefault(); const d=e.dataTransfer.getData('text/pted'); if(!d)return; const st=window._pted; if(d.indexOf('new:')===0) insertBlock(d.slice(4), st.blocks.length); else if(d.indexOf('move:')===0) moveBlock(parseInt(d.slice(5),10), st.blocks.length); }
+function ptedBlockOver(e,i){ e.preventDefault(); e.stopPropagation(); }
+function ptedBlockDrop(e,i){ e.preventDefault(); e.stopPropagation(); const d=e.dataTransfer.getData('text/pted'); if(!d)return; const st=window._pted; if(d.indexOf('new:')===0) insertBlock(d.slice(4), i); else if(d.indexOf('move:')===0) moveBlock(parseInt(d.slice(5),10), i); }
+function ptedSet(i,key,val){ const st=window._pted; st.blocks[i][key]=val; if(key==='text'||key==='left'||key==='right') ptedRenderPreview(); else ptedRender(); }
+function ptedMetaField(bi,i,key,val){ const st=window._pted; if(!st.blocks[bi].fields)st.blocks[bi].fields=[]; st.blocks[bi].fields[i][key]=val; if(key==='label') ptedRenderPreview(); else ptedRender(); }
+function ptedMetaAdd(bi){ const st=window._pted; if(!st.blocks[bi].fields)st.blocks[bi].fields=[]; st.blocks[bi].fields.push({label:'新字段',field:'doc_no'}); ptedRender(); }
+function ptedMetaDel(bi,i){ const st=window._pted; st.blocks[bi].fields.splice(i,1); ptedRender(); }
 async function savePrintTemplate(dt){
-  const title = document.getElementById('ptpl_title').value;
-  const content = document.getElementById('ptpl_content').value;
-  try{ await put('/print/template/'+dt, {title, content}); toast('模板已保存'); }
+  const st=window._pted; const title=document.getElementById('ptpl_title').value;
+  const content=blocksToHtml(st.blocks);
+  try{ await put('/print/template/'+dt, {title:title, content:content}); toast('模板已保存'); }
   catch(e){ toast(e.message, 'error'); }
 }
-
 function previewPrintTemplate(dt){
-  const ta = document.getElementById('ptpl_content');
-  const titleEl = document.getElementById('ptpl_title');
-  const data = getPrintData(dt, getSamplePrintData(dt));
-  data.doc_title = titleEl ? titleEl.value : (PRINT_DOC_TYPES[dt] || dt);
-  const html = fillPrintTemplate(ta.value, data);
+  const st=window._pted; const title=document.getElementById('ptpl_title').value;
+  const content=blocksToHtml(st.blocks);
+  const data=getPrintData(dt, getSamplePrintData(dt));
+  data.doc_title=title;
+  const html=fillPrintTemplate(content, data);
   openPrintWindow(data.doc_title, html);
 }
 
