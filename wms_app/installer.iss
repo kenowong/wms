@@ -4,7 +4,7 @@
 ; 或直接用命令行：ISCC.exe installer.iss
 ; ─────────────────────────────────────────────────────────────
 #define MyAppName "进销存管理系统"
-#define MyAppVersion "2.8.2"
+#define MyAppVersion "2.9.0"
 #define MyAppPublisher "WMS"
 #define MyAppURL "http://127.0.0.1:8899"
 #define MyAppExeName "进销存管理系统.exe"
@@ -30,7 +30,7 @@ DefaultGroupName={#MyAppName}
 OutputDir=..\installer
 OutputBaseFilename=进销存管理系统安装包_v{#MyAppVersion}
 ; 外观
-SetupIconFile=
+SetupIconFile=static\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
 SolidCompression=yes

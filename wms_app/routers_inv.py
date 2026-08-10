@@ -260,6 +260,7 @@ class InvoiceModel(BaseModel):
     remark: Optional[str] = ""
     image_path: Optional[str] = ""      # 发票图片（相对数据目录）
     ocr_raw: Optional[str] = ""         # 识别原始串（二维码/ocr 文本），便于追溯
+    relations: Optional[list] = []      # 关联单据（选单开具时传入）：[{order_type,order_id,order_no,amount}]
 
 @router.get("/invoices")
 def list_invoices(direction: int = -1, keyword: str = "", status: str = "",
@@ -324,6 +325,14 @@ def create_invoice(data: InvoiceModel):
              data.untax_amount,data.tax_amount,data.total_amount,data.status,data.remark,
              data.image_path or "", data.ocr_raw or ""))
         iid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        # 选单开具：把发票关联到对应出入库单据（用于待开票核销）
+        for rel in (data.relations or []):
+            if not isinstance(rel, dict):
+                continue
+            conn.execute("""INSERT INTO invoice_relations(invoice_id,order_type,order_id,order_no,amount)
+                VALUES(?,?,?,?,?)""",
+                (iid, rel.get('order_type', ''), rel.get('order_id', 0),
+                 rel.get('order_no', ''), rel.get('amount', 0)))
         conn.commit()
         return {"ok": True, "id": iid}
     except HTTPException:
@@ -445,6 +454,7 @@ def pending_invoice_orders(order_type: str = "all", keyword: str = ""):
             SELECT o.id, o.order_no, 'purchase' as order_type, '采购入库' as order_type_name,
                    o.order_date, o.total_amount, o.invoice_need, o.invoice_type_req,
                    o.status as order_status, o.remark,
+                   o.supplier_id as partner_id,
                    COALESCE(s.name,'') as partner_name,
                    COALESCE(p.name,'') as project_name,
                    COALESCE((SELECT SUM(ir.amount) FROM invoice_relations ir
@@ -470,6 +480,7 @@ def pending_invoice_orders(order_type: str = "all", keyword: str = ""):
             SELECT o.id, o.order_no, 'sale' as order_type, '销售出库' as order_type_name,
                    o.order_date, o.total_amount, o.invoice_need, o.invoice_type_req,
                    o.status as order_status, o.remark,
+                   o.customer_id as partner_id,
                    COALESCE(c.name,'') as partner_name,
                    COALESCE(p.name,'') as project_name,
                    COALESCE((SELECT SUM(ir.amount) FROM invoice_relations ir
@@ -493,6 +504,8 @@ def pending_invoice_orders(order_type: str = "all", keyword: str = ""):
     # 计算剩余未开票金额
     for r in results:
         r['remaining_amount'] = round(r['total_amount'] - r.get('invoiced_amount', 0), 2)
+    # 仅保留仍有未开金额的订单（真正待开），与工作台"待开票"口径一致
+    results = [r for r in results if r['remaining_amount'] > 0.001]
     # 排序：先按剩余金额降序
     results.sort(key=lambda x: -x['remaining_amount'])
     return results
@@ -525,8 +538,22 @@ def dashboard():
         "SELECT COUNT(*) v FROM sale_orders WHERE status IN (0,1,2)").fetchone()['v']
     r['project_count'] = conn.execute(
         "SELECT COUNT(*) v FROM projects WHERE status=1").fetchone()['v']
-    r['invoice_count'] = conn.execute(
-        "SELECT COUNT(*) v FROM invoices WHERE status='待开具'").fetchone()['v']
+    # 待开票单据数：订单标记需要开票(invoice_need=1)且仍有未开金额(remaining>0)
+    r['invoice_count'] = conn.execute("""
+        SELECT COUNT(*) v FROM (
+            SELECT o.id, o.total_amount - COALESCE((
+                SELECT SUM(ir.amount) FROM invoice_relations ir
+                INNER JOIN invoices iv ON ir.invoice_id=iv.id
+                WHERE ir.order_id=o.id AND ir.order_type='purchase' AND iv.status != '已作废'),0) AS remaining
+            FROM purchase_orders o WHERE o.invoice_need=1
+            UNION ALL
+            SELECT o.id, o.total_amount - COALESCE((
+                SELECT SUM(ir.amount) FROM invoice_relations ir
+                INNER JOIN invoices iv ON ir.invoice_id=iv.id
+                WHERE ir.order_id=o.id AND ir.order_type='sale' AND iv.status != '已作废'),0) AS remaining
+            FROM sale_orders o WHERE o.invoice_need=1
+        ) t WHERE t.remaining > 0.001
+    """).fetchone()['v']
     # 最近入库
     r['recent_purchase'] = [dict(x) for x in conn.execute(
         """SELECT o.order_no,o.order_date,o.total_amount,COALESCE(s.name,'') supplier_name
@@ -554,7 +581,7 @@ def project_cost():
     conn = get_conn()
     rows = conn.execute("""SELECT p.name, p.code,
         COALESCE((SELECT SUM(total_amount) FROM purchase_orders WHERE project_id=p.id AND status>=2),0) purchase_total,
-        COALESCE((SELECT SUM(total_amount) FROM sale_orders WHERE project_id=p.id AND status>=2),0) sale_total,
+        COALESCE((SELECT SUM(untax_amount) FROM sale_orders WHERE project_id=p.id AND status>=2),0) sale_total,
         COALESCE((SELECT SUM(gross_profit) FROM sale_orders WHERE project_id=p.id AND status>=2),0) gross_profit,
         COALESCE((SELECT SUM(total_cost) FROM requisitions WHERE project_id=p.id AND status>=2),0) req_total
         FROM projects p WHERE p.status=1 ORDER BY p.id""").fetchall()

@@ -193,6 +193,68 @@ def get_payment(pid: int):
     return pay
 
 
+@router.get("/finance/pending-orders")
+def pending_orders(pay_type: int = 1, partner_id: int = -1):
+    """待收/待付订单：已审核(status>=2)且仍有未核销余额的出入库单。
+    pay_type=1 收款 -> 销售单(按客户)；pay_type=2 付款 -> 采购单(按供应商)"""
+    conn = get_conn()
+    try:
+        if pay_type == 1:
+            otype = 'sale'
+            sql = """SELECT o.id, o.order_no, o.order_date, o.customer_id AS pid,
+                        o.total_amount,
+                        COALESCE((SELECT SUM(pr.write_off_amount) FROM payment_relations pr
+                            JOIN payments p ON pr.payment_id=p.id
+                            WHERE pr.order_type='sale' AND pr.order_id=o.id
+                              AND p.status=1 AND p.audit_status!=2),0) AS paid
+                     FROM sale_orders o WHERE o.status>=2"""
+            params = []
+            if partner_id and partner_id >= 0:
+                sql += " AND o.customer_id=?"
+                params = [partner_id]
+        else:
+            otype = 'purchase'
+            sql = """SELECT o.id, o.order_no, o.order_date, o.supplier_id AS pid,
+                        o.total_amount,
+                        COALESCE((SELECT SUM(pr.write_off_amount) FROM payment_relations pr
+                            JOIN payments p ON pr.payment_id=p.id
+                            WHERE pr.order_type='purchase' AND pr.order_id=o.id
+                              AND p.status=1 AND p.audit_status!=2),0) AS paid
+                     FROM purchase_orders o WHERE o.status>=2"""
+            params = []
+            if partner_id and partner_id >= 0:
+                sql += " AND o.supplier_id=?"
+                params = [partner_id]
+        sql += " ORDER BY o.order_date DESC, o.id DESC"
+        rows = conn.execute(sql, params).fetchall()
+        results = []
+        for r in rows:
+            total = r['total_amount'] or 0
+            paid = r['paid'] or 0
+            remaining = round(total - paid, 2)
+            if remaining <= 0.001:
+                continue
+            pname = ''
+            if r['pid']:
+                pn = conn.execute("SELECT name FROM partners WHERE id=?", (r['pid'],)).fetchone()
+                if pn:
+                    pname = pn['name']
+            results.append({
+                'order_type': otype,
+                'order_id': r['id'],
+                'order_no': r['order_no'],
+                'order_date': r['order_date'],
+                'partner_id': r['pid'],
+                'partner_name': pname,
+                'total_amount': total,
+                'paid_amount': round(paid, 2),
+                'remaining': remaining,
+            })
+        return results
+    finally:
+        conn.close()
+
+
 @router.post("/payments")
 def create_payment(data: dict):
     conn = get_conn()
@@ -224,18 +286,40 @@ def create_payment(data: dict):
         )
         pay_id = row.lastrowid
 
-        # 关联单据核销
+        # 关联单据核销（支持一笔收付款拆分到多张单据 / 一张单据分多次收付款）
         relations = data.get('relations', [])
+        sum_wo = 0.0
         for rel in relations:
             wo = float(rel.get('write_off_amount', 0))
             if wo <= 0:
                 continue
+            otype = rel.get('order_type', '')
+            oid = int(rel.get('order_id', 0) or 0)
+            if otype not in ('purchase', 'sale') or oid <= 0:
+                raise HTTPException(400, "关联单据类型或编号无效")
+            if otype == 'sale':
+                tot = conn.execute("SELECT total_amount FROM sale_orders WHERE id=?", (oid,)).fetchone()
+            else:
+                tot = conn.execute("SELECT total_amount FROM purchase_orders WHERE id=?", (oid,)).fetchone()
+            if not tot:
+                raise HTTPException(400, "关联单据不存在")
+            # 已核销金额（仅统计有效付款：status=1 且未作废 audit_status!=2）
+            cur_paid = conn.execute(
+                """SELECT COALESCE(SUM(pr.write_off_amount),0) FROM payment_relations pr
+                   JOIN payments p ON pr.payment_id=p.id
+                   WHERE pr.order_type=? AND pr.order_id=? AND p.status=1 AND p.audit_status!=2""",
+                (otype, oid)).fetchone()[0]
+            remaining = (tot['total_amount'] or 0) - cur_paid
+            if wo > remaining + 0.01:
+                raise HTTPException(400, f"单据 {rel.get('order_no','')} 本次核销 {wo} 超过剩余未结 {round(remaining,2)}")
             conn.execute(
                 """INSERT INTO payment_relations(payment_id,order_type,order_id,order_no,write_off_amount)
                    VALUES(?,?,?,?,?)""",
-                (pay_id, rel.get('order_type', ''), rel.get('order_id', 0),
-                 rel.get('order_no', ''), wo)
+                (pay_id, otype, oid, rel.get('order_no', ''), wo)
             )
+            sum_wo += wo
+        if sum_wo > amount + 0.01:
+            raise HTTPException(400, f"核销合计 {round(sum_wo,2)} 超过本次收付款金额 {amount}")
 
         # 更新银行账户余额
         if bank_account_id:
@@ -261,7 +345,7 @@ def create_payment(data: dict):
 
 
 def _payment_guard(conn, pid, allow):
-    row = conn.execute("SELECT audit_status FROM payments WHERE id=?", (pid,)).fetchone()
+    row = conn.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
     if not row:
         raise HTTPException(404, "记录不存在")
     if row['audit_status'] not in allow:
@@ -349,6 +433,16 @@ def cancel_payment(pid: int):
 # ══════════════════════════════════════════
 # 对账
 # ══════════════════════════════════════════
+@router.get("/reconciliations/{rid}")
+def get_reconciliation(rid: int):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM reconciliations WHERE id=?", (rid,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "对账单不存在")
+    return dict(row)
+
+
 @router.get("/reconciliations")
 def list_reconciliations(partner_id: int = -1, recon_type: int = -1):
     conn = get_conn()
@@ -498,12 +592,12 @@ def finance_summary():
     month_start = today[:7] + "-01"
     # 本月收款
     recv = conn.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM payments WHERE pay_type=1 AND status=1 AND pay_date>=? AND pay_date<=?",
+        "SELECT COALESCE(SUM(amount),0) FROM payments WHERE pay_type=1 AND status=1 AND audit_status!=2 AND pay_date>=? AND pay_date<=?",
         (month_start, today)
     ).fetchone()[0]
     # 本月付款
     paid = conn.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM payments WHERE pay_type=2 AND status=1 AND pay_date>=? AND pay_date<=?",
+        "SELECT COALESCE(SUM(amount),0) FROM payments WHERE pay_type=2 AND status=1 AND audit_status!=2 AND pay_date>=? AND pay_date<=?",
         (month_start, today)
     ).fetchone()[0]
     # 银行账户汇总余额
@@ -513,13 +607,13 @@ def finance_summary():
     # 待收款（销售单已审核未完全收款）
     ar = conn.execute(
         """SELECT COALESCE(SUM(so.total_amount),0) - COALESCE(
-            (SELECT SUM(p.amount) FROM payments p WHERE p.pay_type=1 AND p.status=1),0)
+            (SELECT SUM(p.amount) FROM payments p WHERE p.pay_type=1 AND p.status=1 AND p.audit_status!=2),0)
            FROM sale_orders so WHERE so.status>=2"""
     ).fetchone()[0]
     # 待付款（采购单已审核未完全付款）
     ap = conn.execute(
         """SELECT COALESCE(SUM(po.total_amount),0) - COALESCE(
-            (SELECT SUM(p.amount) FROM payments p WHERE p.pay_type=2 AND p.status=1),0)
+            (SELECT SUM(p.amount) FROM payments p WHERE p.pay_type=2 AND p.status=1 AND p.audit_status!=2),0)
            FROM purchase_orders po WHERE po.status>=2"""
     ).fetchone()[0]
     conn.close()

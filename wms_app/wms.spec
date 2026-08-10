@@ -37,6 +37,7 @@ a = Analysis(
         'routers_auth',
         'routers_finance',
         'routers_system',
+        'routers_print',
         'ocr_utils',
         'cv2',
         'numpy',
@@ -71,5 +72,5 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
-    icon=None,
+    icon='static/icon.ico',
 )

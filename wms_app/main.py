@@ -66,6 +66,10 @@ from routers_system import router as system_router
 from routers_period import router as period_router
 from routers_auth import router as auth_router
 from routers_auth import _tokens, get_allowed_modules
+from routers_print import router as print_router
+from routers_print import ensure_print_tables
+# 建表并播种默认打印模板（需在打印路由导入之后）
+ensure_print_tables()
 
 app = FastAPI(title="进销存管理系统", version="2.4.0")
 
@@ -97,6 +101,7 @@ PATH_MODULE = {
     '/api/expenses': 'expense',
     '/api/invoices': 'invoice',
     '/api/system': 'system',
+    '/api/print': 'system',
 }
 MOD_LABEL = {
     'goods': '商品档案', 'categories': '商品分类', 'brands': '品牌管理', 'units': '计量单位',
@@ -134,6 +139,7 @@ app.include_router(finance_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
 app.include_router(period_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(print_router, prefix="/api")
 
 # 提供前端页面
 static_dir = resource_path("static")
@@ -147,7 +153,7 @@ def index():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.8.2", "host": WMS_HOST, "port": WMS_PORT}
+    return {"status": "ok", "version": "2.9.0", "host": WMS_HOST, "port": WMS_PORT}
 
 
 # ── PWA 资源（manifest / 图标）：供手机浏览器"添加到主屏幕"安装为 App ──

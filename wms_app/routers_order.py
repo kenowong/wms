@@ -403,7 +403,9 @@ def outstock_sale(oid: int, user: dict = Depends(get_current_user), body: dict =
             conn.execute("UPDATE sale_items SET cost_price=? WHERE id=?", (cost_price, item['id']))
             update_inventory(conn, item['goods_id'], row['warehouse_id'], row['project_id'],
                            -1, item['qty'], cost_price, 'sale', row['order_no'], user['display_name'])
-        gross = row['total_amount'] - total_cost
+        # 毛利必须同口径：收入用不含税(untax_amount)，成本用不含税(avg_cost)，
+        # 否则"含税收入-不含税成本"会把销项税额算成利润，毛利虚高。
+        gross = row['untax_amount'] - total_cost
         conn.execute("""UPDATE sale_orders SET status=3,cost_amount=?,gross_profit=?,
             updated_at=datetime('now','localtime') WHERE id=?""", (total_cost, gross, oid))
         conn.commit()

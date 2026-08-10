@@ -291,6 +291,7 @@ tr:hover td{background:#fafffe}
       <div class="nav-item" data-perm="system" onclick="nav('system')"><span class="icon">🗄️</span>备份与导入导出</div>
       <div class="nav-item" data-perm="system" onclick="nav('period')"><span class="icon">📅</span>期末处理（封账/结转）</div>
       <div class="nav-item admin-only" data-perm="users" onclick="nav('users')" style="display:none"><span class="icon">👤</span>用户管理</div>
+      <div class="nav-item" data-perm="system" onclick="nav('print_tpl')"><span class="icon">🖨️</span>打印模板</div>
     </div>
   </div>
   <div class="main">
@@ -398,6 +399,180 @@ function showModal(title,html,footer=''){
 function closeModal(){
   const m=document.getElementById('active-modal');
   if(m) m.remove();
+}
+
+// ══════════════════════════════════════════
+// 打印功能（所有单据通用，模板可编辑）
+// ══════════════════════════════════════════
+let _companyInfo = {};            // 公司信息（打印抬头），登录后加载
+const PRINT_DOC_TYPES = {
+  purchase:'采购入库单', sale:'销售出库单', requisition:'耗材领用单',
+  check:'库存盘点单', payment:'收付款单', invoice:'发票', expense:'费用单',
+  reconciliation:'对账单'
+};
+function apiPathFor(dt){
+  return {purchase:'/purchase', sale:'/sale', requisition:'/requisition', check:'/check',
+    payment:'/payments', invoice:'/invoices', expense:'/expenses',
+    reconciliation:'/reconciliations'}[dt] || ('/'+dt);
+}
+function escHtml(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// 打开打印窗口（内联打印样式，模板内容自带语义 class）
+function openPrintWindow(title, html){
+  const w = window.open('', '_blank');
+  if(!w){ toast('打印窗口被浏览器拦截，请允许弹出窗口后重试','error'); return; }
+  const css = [
+    "body{font-family:'Microsoft YaHei',sans-serif;color:#000;font-size:14px;margin:0;padding:16px}",
+    ".pt-doc{max-width:800px;margin:0 auto;padding:8px}",
+    ".pt-head{text-align:center;margin-bottom:14px}",
+    ".pt-company{font-size:20px;font-weight:700}",
+    ".pt-sub{font-size:12px;color:#555;margin-top:4px}",
+    ".pt-title{font-size:22px;font-weight:700;margin:10px 0 6px}",
+    ".pt-meta{font-size:13px;color:#333}",
+    ".pt-parties{display:flex;justify-content:space-between;margin:12px 0;font-size:13px}",
+    ".pt-info{font-size:13px;margin:2px 0}",
+    ".pt-label{color:#666}",
+    ".pt-items{margin:12px 0}",
+    ".ptb{width:100%;border-collapse:collapse;font-size:13px}",
+    ".ptb th,.ptb td{border:1px solid #999;padding:6px 8px}",
+    ".ptb th{background:#f0f0f0}",
+    ".pt-total{text-align:right;font-weight:700;font-size:15px;margin-top:8px}",
+    ".pt-remark{font-size:13px;color:#444;margin-top:8px}",
+    ".pt-foot{display:flex;justify-content:space-between;margin-top:30px;font-size:13px;color:#555}",
+    "@media print{.no-print{display:none}}"
+  ].join('');
+  w.document.open();
+  w.document.write('<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>'+title+'</title><style>'+css+'</style></head><body>'+html+'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},400);};</scr'+'ipt></body></html>');
+  w.document.close();
+}
+
+// 用占位符填充模板
+function fillPrintTemplate(tpl, data){
+  let html = tpl;
+  // 明细表
+  if(html.indexOf('{{items}}') >= 0){
+    const its = data.items || [];
+    if(its.length){
+      let rows = '';
+      its.forEach((it, idx)=>{
+        rows += '<tr><td>'+(idx+1)+'</td><td>'+escHtml(it.name)+'</td><td>'+escHtml(it.spec)+'</td><td>'+escHtml(it.unit)
+          + '</td><td style="text-align:right">'+(it.qty!==''&&it.qty!=null?fmtNum(it.qty):'')+'</td>'
+          + '<td style="text-align:right">'+(it.price!==''&&it.price!=null?fmtMoney(it.price):'')+'</td>'
+          + '<td style="text-align:right">'+(it.amount!==''&&it.amount!=null?fmtMoney(it.amount):'')+'</td></tr>';
+      });
+      html = html.replace('{{items}}', '<table class="ptb"><thead><tr><th>序号</th><th>名称/商品</th><th>规格</th><th>单位</th><th style="text-align:right">数量</th><th style="text-align:right">单价</th><th style="text-align:right">金额</th></tr></thead><tbody>'+rows+'</tbody></table>');
+    } else {
+      html = html.replace('{{items}}', '');
+    }
+  }
+  // 其余占位符
+  const moneyKeys = ['amount','fee','tax_amount','untax_amount','total_amount','total_cost',
+                     'gross_profit','balance_amount','total_order_amount','total_paid_amount','diff_amount','price'];
+  html = html.replace(/\{\{\s*([\w]+)\s*\}\}/g, function(m, k){
+    if(!(k in data)) return '';
+    let v = data[k];
+    if(v === null || v === undefined) return '';
+    if(typeof v === 'number'){
+      if(moneyKeys.indexOf(k) >= 0 && k !== 'tax_rate') return fmtMoney(v);
+      return String(v);
+    }
+    return String(v);
+  });
+  return html;
+}
+
+// 将后端单据对象归一化为打印数据
+function getPrintData(dt, raw){
+  const co = _companyInfo || {};
+  const base = {
+    company: co.company_name||'', company_address: co.company_address||'',
+    company_phone: co.company_phone||'', company_tax_no: co.company_tax_no||'',
+    doc_no:'', doc_date:'', partner:'', operator: raw.operator||raw.business_person||'',
+    amount:0, remark: raw.remark||'', print_time: new Date().toLocaleString('zh-CN'),
+    items:[]
+  };
+  let items = [];
+  if(dt === 'purchase'){
+    Object.assign(base, {doc_no:raw.order_no, doc_date:fmtDate(raw.order_date),
+      partner:raw.supplier_name||'', project_name:raw.project_name||'', warehouse_name:raw.warehouse_name||'',
+      business_person:raw.business_person||'', tax_amount:raw.tax_amount||0, fee:raw.fee||0,
+      total_amount:raw.total_amount||0, amount:raw.total_amount||0});
+    items = (raw.items||[]).map(i=>({name:i.goods_name, spec:i.spec||'', unit:i.unit, qty:i.qty, price:i.unit_price, amount:i.total_amount}));
+  } else if(dt === 'sale'){
+    Object.assign(base, {doc_no:raw.order_no, doc_date:fmtDate(raw.order_date),
+      partner:raw.customer_name||'', project_name:raw.project_name||'', warehouse_name:raw.warehouse_name||'',
+      business_person:raw.business_person||'', gross_profit:raw.gross_profit||0, tax_amount:raw.tax_amount||0,
+      fee:raw.fee||0, total_amount:raw.total_amount||0, amount:raw.total_amount||0});
+    items = (raw.items||[]).map(i=>({name:i.goods_name, spec:i.spec||'', unit:i.unit, qty:i.qty, price:i.unit_price, amount:i.total_amount}));
+  } else if(dt === 'requisition'){
+    Object.assign(base, {doc_no:raw.order_no, doc_date:fmtDate(raw.req_date),
+      partner:raw.project_name||'', project_name:raw.project_name||'', warehouse_name:raw.warehouse_name||'',
+      applicant:raw.applicant||'', total_cost:raw.total_cost||0, amount:raw.total_cost||0});
+    items = (raw.items||[]).map(i=>({name:i.goods_name, spec:'', unit:i.unit, qty:i.qty, price:'', amount:i.total_cost||''}));
+  } else if(dt === 'check'){
+    let tot = 0; (raw.items||[]).forEach(i=> tot += (i.diff_amount||0));
+    Object.assign(base, {doc_no:raw.check_no, doc_date:fmtDate(raw.check_date),
+      partner:raw.warehouse_name||'', warehouse_name:raw.warehouse_name||'',
+      business_person:raw.business_person||'', total_diff:tot, amount:tot});
+    items = (raw.items||[]).map(i=>({name:i.goods_name,
+      spec:'系统 '+fmtNum(i.system_qty)+' / 实盘 '+fmtNum(i.actual_qty), unit:i.unit,
+      qty:i.diff_qty, price:'', amount:i.diff_amount}));
+  } else if(dt === 'payment'){
+    Object.assign(base, {doc_no:raw.pay_no, doc_date:fmtDate(raw.pay_date),
+      partner:raw.partner_name||'', bank_account_name:raw.bank_account_name||'',
+      fee:raw.fee||0, pay_type_label:(raw.pay_type===1?'收款':'付款'), amount:raw.amount||0});
+    items = (raw.relations||[]).map(r=>({name:r.order_no,
+      spec:(r.order_type==='sale'?'销售单':'采购单'), unit:'', qty:'', price:'', amount:r.write_off_amount}));
+  } else if(dt === 'invoice'){
+    Object.assign(base, {doc_no:raw.invoice_no, doc_date:fmtDate(raw.invoice_date),
+      partner:raw.partner_name||'', invoice_code:raw.invoice_code||'', invoice_type:raw.invoice_type||'',
+      project_name:raw.project_name||'', tax_rate:raw.tax_rate||0, untax_amount:raw.untax_amount||0,
+      tax_amount:raw.tax_amount||0, total_amount:raw.total_amount||0, status:raw.status||'', amount:raw.total_amount||0});
+  } else if(dt === 'expense'){
+    Object.assign(base, {doc_no:raw.expense_no, doc_date:fmtDate(raw.expense_date),
+      partner:'', category:raw.category||'', pay_account_name:raw.pay_account_name||'',
+      business_person:raw.business_person||'', amount:raw.amount||0});
+  } else if(dt === 'reconciliation'){
+    Object.assign(base, {doc_no:raw.recon_no, doc_date:'',
+      partner:raw.partner_name||'', recon_type_label:(raw.recon_type===1?'应收(销售)':'应付(采购)'),
+      period_start:raw.period_start||'', period_end:raw.period_end||'',
+      total_order_amount:raw.total_order_amount||0, total_paid_amount:raw.total_paid_amount||0,
+      balance_amount:raw.balance_amount||0, amount:raw.balance_amount||0});
+  }
+  base.items = items;
+  return base;
+}
+
+// 打印入口：preloaded 为可选（详情已加载的对象，避免重复请求）
+async function printDoc(dt, id, preloaded){
+  try{
+    const [raw, tpl] = await Promise.all([
+      preloaded || get(apiPathFor(dt) + '/' + id),
+      get('/print/template/' + dt)
+    ]);
+    const data = getPrintData(dt, raw);
+    data.doc_title = tpl.title || PRINT_DOC_TYPES[dt] || dt;
+    const html = fillPrintTemplate(tpl.content, data);
+    openPrintWindow(data.doc_title + ' ' + data.doc_no, html);
+  }catch(e){ toast(e.message, 'error'); }
+}
+
+// 示例数据（模板编辑器预览用，无需真实单据）
+function getSamplePrintData(dt){
+  if(dt==='purchase') return {id:1,order_no:'CG-2026-0001',order_date:'2026-08-10',supplier_name:'示例供应商有限公司',project_name:'示例项目',warehouse_name:'主仓库',operator:'张三',business_person:'李四',fee:10,tax_amount:130,tax_rate:13,total_amount:1130,remark:'示例备注',items:[{goods_name:'商品A',spec:'规格1',unit:'个',qty:10,unit_price:100,tax_rate:13,tax_amount:130,total_amount:1000},{goods_name:'商品B',spec:'规格2',unit:'件',qty:5,unit_price:20,total_amount:100}]};
+  if(dt==='sale') return {id:1,order_no:'XS-2026-0001',order_date:'2026-08-10',customer_name:'示例客户有限公司',project_name:'示例项目',warehouse_name:'主仓库',operator:'张三',business_person:'李四',fee:5,gross_profit:200,tax_amount:130,total_amount:1130,remark:'示例',items:[{goods_name:'商品A',spec:'规格1',unit:'个',qty:10,unit_price:100,total_amount:1000},{goods_name:'商品B',spec:'规格2',unit:'件',qty:5,unit_price:20,total_amount:100}]};
+  if(dt==='requisition') return {id:1,order_no:'MR-2026-0001',req_date:'2026-08-10',project_name:'示例项目',warehouse_name:'主仓库',operator:'张三',applicant:'王五',total_cost:60,remark:'',items:[{goods_name:'螺丝',unit:'个',qty:20,total_cost:40},{goods_name:'胶带',unit:'卷',qty:2,total_cost:20}]};
+  if(dt==='check') return {id:1,check_no:'PD-2026-0001',check_date:'2026-08-10',warehouse_name:'主仓库',operator:'张三',business_person:'李四',remark:'',items:[{goods_name:'商品A',unit:'个',system_qty:100,actual_qty:98,diff_qty:-2,diff_amount:-20,cost_price:10},{goods_name:'商品B',unit:'件',system_qty:50,actual_qty:55,diff_qty:5,diff_amount:100,cost_price:20}]};
+  if(dt==='payment') return {id:1,pay_no:'SK-2026-0001',pay_date:'2026-08-10',pay_type:1,partner_name:'示例客户有限公司',bank_account_name:'工商银行',amount:1000,fee:2,operator:'张三',remark:'',relations:[{order_no:'XS-2026-0001',order_type:'sale',write_off_amount:1000}]};
+  if(dt==='invoice') return {id:1,invoice_no:'12345678',invoice_code:'441300',invoice_type:'增值税专用发票',partner_name:'示例客户有限公司',project_name:'示例项目',invoice_date:'2026-08-10',tax_rate:13,untax_amount:1000,tax_amount:130,total_amount:1130,status:'已开具',remark:''};
+  if(dt==='expense') return {id:1,expense_no:'FY-2026-0001',expense_date:'2026-08-10',category:'差旅费',amount:500,pay_account_name:'现金',business_person:'李四',operator:'张三',remark:'示例'};
+  if(dt==='reconciliation') return {id:1,recon_no:'DZ-2026-0001',partner_name:'示例客户有限公司',recon_type:1,period_start:'2026-01-01',period_end:'2026-08-10',total_order_amount:10000,total_paid_amount:6000,balance_amount:4000,status:0,remark:''};
+  return {};
 }
 // 通用编码刷新
 async function refreshCode(inputId, type){
@@ -560,7 +735,8 @@ const PAGE_TITLES = {
   inv_in:'进项发票',inv_out:'出项发票',projects:'项目台账',stats:'数据报表',
   system:'备份与导入导出',
   users:'用户管理',
-  period:'期末处理（封账/结转）'
+  period:'期末处理（封账/结转）',
+  print_tpl:'打印模板'
 };
 // 模块权限清单（key 与后端 PATH_MODULE 一致），用于员工权限设置
 const MODULE_LIST = [
@@ -645,7 +821,7 @@ async function pageDashboard(){
     <div class="stat-card red">
       <div class="stat-label">库存预警</div>
       <div class="stat-value" style="color:${d.stock_alert>0?'#ff4d4f':'#52c41a'}">${d.stock_alert}</div>
-      <div class="stat-sub">待开发票 ${d.invoice_count} 张</div>
+      <div class="stat-sub">待开票 ${d.invoice_count} 单</div>
     </div>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -1040,7 +1216,8 @@ async function viewPurchase(id){
     <td><b style="color:var(--danger)">${fmtMoney(d.total_amount)}</b></td>
   </tr></tfoot></table>
   ${d.remark?`<div style="margin-top:8px;color:#888;font-size:12px">备注：${d.remark}</div>`:''}`,
-  `<button class="btn" onclick="closeModal()">关闭</button>`);
+  `<button class="btn" onclick="closeModal()">关闭</button>
+   <button class="btn btn-primary" onclick="printDoc('purchase',${id})">🖨 打印</button>`);
 }
 
 function newPurchaseOrder(){
@@ -1296,7 +1473,8 @@ async function viewSale(id){
     <td>${d.status==3?fmtMoney(d.cost_amount):'-'}</td>
     <td><b style="color:var(--danger)">${fmtMoney(d.total_amount)}</b></td>
   </tr></tfoot></table>`,
-  `<button class="btn" onclick="closeModal()">关闭</button>`);
+  `<button class="btn" onclick="closeModal()">关闭</button>
+   <button class="btn btn-primary" onclick="printDoc('sale',${id})">🖨 打印</button>`);
 }
 
 function newSaleOrder(){
@@ -1503,6 +1681,7 @@ async function loadReq(){
       <td>${statusBadge(r.status,REQ_STATUS)}</td>
       <td>
         ${r.status<3?`<button class="btn-link btn-success" onclick="outstockReq(${r.id})">出库</button>`:''}
+        <button class="btn-link" onclick="printDoc('requisition',${r.id})">🖨 打印</button>
       </td></tr>`).join('')
     :'<tr><td colspan="8" class="empty-tip">暂无数据</td></tr>';
 }
@@ -1775,8 +1954,10 @@ async function viewCheck(id){
     </tbody>
   </table>`,
   d.status==2
-    ?`<button class="btn" onclick="closeModal()">关闭</button>`
+    ?`<button class="btn" onclick="closeModal()">关闭</button>
+      <button class="btn" onclick="printDoc('check',${id})">🖨 打印</button>`
     :`<button class="btn" onclick="closeModal()">关闭</button>
+      <button class="btn" onclick="printDoc('check',${id})">🖨 打印</button>
       <button class="btn btn-primary" onclick="saveCheckItems(${id})">保存数量</button>`);
 }
 function updateCheckDiff(iid,sysQty,costPrice){
@@ -1851,11 +2032,12 @@ async function pageInvoices(dir){
     <div class="search-bar" style="margin-bottom:12px">
       <input id="iv_pending_kw" placeholder="单号/往来单位" style="width:200px">
       <button class="btn btn-primary" onclick="loadPendingInvoice('${pendingOrderType}')">🔍 查询</button>
+      <button class="btn" onclick="editInvoice(null,${dir})">➕ 录入${title}</button>
     </div>
     <div id="pending-summary" style="margin-bottom:10px"></div>
     <div class="table-wrap"><table><thead><tr>
       <th>单号</th><th>类型</th><th>往来单位</th><th>项目</th><th>单据日期</th>
-      <th>单据金额</th><th>已开票金额</th><th>待开金额</th><th>发票类型需求</th><th>单据状态</th>
+      <th>单据金额</th><th>已开票金额</th><th>待开金额</th><th>发票类型需求</th><th>单据状态</th><th>操作</th>
     </tr></thead><tbody id="pending-tbody"></tbody></table></div>
   </div>
   </div>`;
@@ -1875,9 +2057,11 @@ function switchInvTab(tab, dir){
 }
 
 const ORDER_STATUS_MAP={0:'草稿',1:'待审核',2:'已审核',3:'已入/出库',4:'已关闭'};
+let _pendingRows=[];   // 缓存待开票列表，供「开具发票」按钮引用
 async function loadPendingInvoice(orderType){
   const kw=document.getElementById('iv_pending_kw')?.value||'';
   const rows=await get('/orders/pending-invoice',`order_type=${orderType}&keyword=${encodeURIComponent(kw)}`);
+  _pendingRows=rows;
   // 更新徽章
   const badge=document.getElementById('pending_badge');
   if(badge) badge.textContent=rows.length>0?rows.length:'';
@@ -1896,7 +2080,7 @@ async function loadPendingInvoice(orderType){
   };
   const tbody=document.getElementById('pending-tbody');
   if(!tbody) return;
-  tbody.innerHTML=rows.length?rows.map(r=>`<tr style="${r.remaining_amount<=0.01?'opacity:0.5':''}">
+  tbody.innerHTML=rows.length?rows.map((r,idx)=>`<tr style="${r.remaining_amount<=0.01?'opacity:0.5':''}">
     <td><b>${r.order_no}</b></td>
     <td>${r.order_type_name}</td>
     <td>${r.partner_name||'-'}</td>
@@ -1907,7 +2091,27 @@ async function loadPendingInvoice(orderType){
     <td><b style="color:${r.remaining_amount>0.01?'var(--danger)':'var(--success)'}">${fmtMoney(r.remaining_amount)}</b></td>
     <td>${INV_TYPE_TAG[r.invoice_type_req]||`<span class="tag">${r.invoice_type_req||'未指定'}</span>`}</td>
     <td><span class="tag">${ORDER_STATUS_MAP[r.order_status]||'-'}</span></td>
-  </tr>`).join(''):'<tr><td colspan="10" class="empty-tip">🎉 暂无待开票单据</td></tr>';
+    <td><button class="btn-link" onclick="openInvoiceFromOrder(${idx})">🔖 开具发票</button></td>
+  </tr>`).join(''):'<tr><td colspan="11" class="empty-tip">🎉 暂无待开票单据</td></tr>';
+}
+
+// 从待开票单据直接开具发票：预填单据信息并保存后关联到该单据
+function openInvoiceFromOrder(idx){
+  const r=_pendingRows[idx];
+  if(!r) return;
+  const dir = r.order_type==='sale' ? 2 : 1;   // 销售出库→出项发票；采购入库→进项发票
+  const req = r.invoice_type_req||'';
+  let itype='增值税普通发票';
+  if(req==='增值税发票') itype='增值税专用发票';
+  else if(req==='收据') itype='收据';
+  const preset={
+    partner_id: r.partner_id||null,
+    project_id: r.project_id||0,
+    invoice_type: itype,
+    total_amount: r.remaining_amount||0,
+    relations:[{order_type:r.order_type, order_id:r.id, order_no:r.order_no, amount:(r.remaining_amount||0)}]
+  };
+  editInvoice(null, dir, preset);
 }
 
 async function loadInvoices(dir){
@@ -1926,6 +2130,7 @@ async function loadInvoices(dir){
       <td><b>${fmtMoney(r.total_amount)}</b></td>
       <td><span class="tag ${IVST[r.status]||''}">${r.status}</span></td>
       <td>
+        <button class="btn-link" onclick="printDoc('invoice',${r.id})">🖨 打印</button>
         ${r.image_path?`<button class="btn-link" onclick="ivPreview(${r.id})">🖼图</button>`:''}
         ${r.audit_status===0?`<button class="btn-link" onclick="editInvoice(${r.id},${dir})">编辑</button>`:''}
         ${r.audit_status===0?`<button class="btn-link btn-success" onclick="doApprove('invoice',${r.id})">审核</button>`:''}
@@ -1940,13 +2145,23 @@ async function loadInvoices(dir){
   document.getElementById('iv-summary').innerHTML=
     `共 <b>${rows.length}</b> 张发票 | 价税合计：<b style="color:var(--danger)">${fmtMoney(total)}</b> | 税额合计：<b>${fmtMoney(tax)}</b>`;
 }
-async function editInvoice(id=null,dir=1){
+async function editInvoice(id=null,dir=1,preset=null){
   let iv={invoice_no:'',invoice_code:'',invoice_type:'增值税普通发票',direction:dir,
     project_id:0,partner_id:null,invoice_date:new Date().toISOString().substring(0,10),
     tax_rate:13,untax_amount:0,tax_amount:0,total_amount:0,status:'已开具',remark:''};
   if(id){
     const d=await get('/invoices/'+id);
     Object.assign(iv,d);
+    _ivPresetRelations=null;
+  }else if(preset){
+    // 选单开具：预填该单据的往来单位/项目/发票类型/待开金额
+    if(preset.partner_id) iv.partner_id=preset.partner_id;
+    if(preset.project_id) iv.project_id=preset.project_id;
+    if(preset.invoice_type) iv.invoice_type=preset.invoice_type;
+    if(preset.total_amount) iv.total_amount=+preset.total_amount;
+    _ivPresetRelations=preset.relations||null;
+  }else{
+    _ivPresetRelations=null;
   }
   const today=new Date().toISOString().substring(0,10);
   showModal((id?'编辑':'录入')+(dir==1?'进项':'出项')+'发票',`
@@ -1998,6 +2213,7 @@ async function editInvoice(id=null,dir=1){
     <div class="form-row"><label>备注</label><input id="iv_rem" value="${iv.remark||''}"></div>
   </div>`,
   `<button class="btn" onclick="closeModal()">取消</button>
+   ${id?`<button class="btn" onclick="printDoc('invoice',${id})">🖨 打印</button>`:''}
    <button class="btn btn-primary" onclick="saveInvoice(${id||'null'},${dir})">保存</button>`);
   // 图片：已有则展示，新上传覆盖
   _ivNewImg = iv.image_path||'';
@@ -2012,7 +2228,7 @@ async function editInvoice(id=null,dir=1){
     }
   }
 }
-let _ivNewImg='', _ivNewOcr='';
+let _ivNewImg='', _ivNewOcr='', _ivPresetRelations=null;
 function ivOnImage(input){
   const btn=document.getElementById('iv_rec_btn');
   const prev=document.getElementById('iv_img_prev');
@@ -2094,10 +2310,14 @@ async function saveInvoice(id,dir){
     image_path:_ivNewImg,
     ocr_raw:_ivNewOcr
   };
+  // 选单开具：保存时附带单据关联，关联金额取本次发票实际价税合计
+  if(_ivPresetRelations && _ivPresetRelations.length){
+    body.relations = _ivPresetRelations.map(x=>({...x, amount: body.total_amount}));
+  }
   try{
     id?await put('/invoices/'+id,body):await post('/invoices',body);
-    _ivNewImg=''; _ivNewOcr='';
-    toast('保存成功'); closeModal(); loadInvoices(dir);
+    _ivNewImg=''; _ivNewOcr=''; _ivPresetRelations=null;
+    toast('保存成功'); closeModal(); loadInvoices(dir); loadPendingInvoice(dir==1?'purchase':'sale');
   }catch(e){toast(e.message,'error')}
 }
 async function delInvoice(id,dir){
@@ -2774,9 +2994,16 @@ async function _pagePayment(payType){
       </select>
       <input id="pk_df" type="month" value="${today}" style="width:120px">
       <input id="pk_dt" type="month" value="${today}" style="width:120px">
-      <button class="btn btn-primary" onclick="loadPayments(${payType})">🔍 查询</button>
+      <button class="btn btn-primary" onclick="loadPayments(${payType});loadPendingPage(${payType})">🔍 查询</button>
     </div>
     <button class="btn btn-primary" onclick="editPayment(null,${payType})">➕ 新增${isRecv?'收款':'付款'}</button>
+  </div>
+  <div class="card" style="margin-bottom:16px;background:#fffbe6;border:1px solid #ffe58f">
+    <div style="font-weight:600;color:#d48806;margin-bottom:8px">📋 待${isRecv?'收':'付'}单据（${isRecv?'已审核销售单未结清':'已审核采购单未结清'}，点击右侧按钮可直接${isRecv?'收款':'付款'}）</div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>单据号</th><th>日期</th><th>往来单位</th>
+      <th>${isRecv?'应收':'应付'}金额</th><th>已${isRecv?'收':'付'}</th><th>未结</th><th>操作</th>
+    </tr></thead><tbody id="pending-tbody"></tbody></table></div>
   </div>
   <div id="pay-summary" style="display:flex;gap:16px;margin-bottom:12px"></div>
   <div class="table-wrap"><table><thead><tr>
@@ -2786,6 +3013,33 @@ async function _pagePayment(payType){
   </tr></thead>
   <tbody id="pay-tbody"></tbody></table></div></div>`;
   loadPayments(payType);
+  loadPendingPage(payType);
+}
+
+async function loadPendingPage(payType){
+  const box=document.getElementById('pending-tbody');
+  if(!box) return;
+  box.innerHTML='<tr><td colspan="7" style="color:#888">加载中...</td></tr>';
+  try{
+    const pid=document.getElementById('pk_partner')?.value||'-1';
+    const rows=await get('/finance/pending-orders', `pay_type=${payType}&partner_id=${pid}`);
+    const lbl=payType===1?'收':'付';
+    if(!rows || !rows.length){
+      box.innerHTML='<tr><td colspan="7" style="color:#888">暂无待'+lbl+'单据（已审核且未结清的出入库单才会显示）</td></tr>';
+      return;
+    }
+    box.innerHTML=rows.map(r=>`<tr>
+      <td>${r.order_no||'-'}</td>
+      <td>${r.order_date||'-'}</td>
+      <td>${r.partner_name||'-'}</td>
+      <td>${fmtMoney(r.total_amount)}</td>
+      <td>${fmtMoney(r.paid_amount)}</td>
+      <td><b style="color:var(--danger)">${fmtMoney(r.remaining)}</b></td>
+      <td><button class="btn-link btn-success" onclick="editPayment(null,${payType},{partnerId:${r.partner_id},orderId:${r.order_id},orderType:'${r.order_type}'})">${payType===1?'收款':'付款'}</button></td>
+    </tr>`).join('');
+  }catch(e){
+    box.innerHTML='<tr><td colspan="7" style="color:var(--danger)">加载失败</td></tr>';
+  }
 }
 
 async function loadPayments(payType){
@@ -2826,14 +3080,55 @@ async function loadPayments(payType){
     :'<tr><td colspan="8" class="empty-tip">暂无数据</td></tr>';
 }
 
-async function editPayment(id=null, payType=1){
+// 加载待收/待付订单（按往来单位过滤），渲染可选单据表格
+async function loadPendingOrders(payType, partnerId){
+  const box=document.getElementById('fp_order_list');
+  if(!box) return;
+  box.innerHTML='<span style="color:#888;font-size:12px">加载中...</span>';
+  try{
+    const q='pay_type='+payType+'&partner_id='+(partnerId||-1);
+    const rows=await get('/finance/pending-orders', q);
+    renderPendingOrders(payType, rows);
+  }catch(e){ box.innerHTML='<span style="color:var(--danger);font-size:12px">加载失败</span>'; }
+}
+function renderPendingOrders(payType, rows){
+  const box=document.getElementById('fp_order_list');
+  if(!box) return;
+  if(!rows || !rows.length){
+    box.innerHTML='<div style="color:#888;font-size:12px;padding:6px">暂无待'+(payType===1?'收':'付')+'单据（仅显示已审核且未结清的出入库单）</div>';
+    return;
+  }
+  const label=payType===1?'应收':'应付';
+  let html='<table class="tbl" style="font-size:12px"><thead><tr>'+
+    '<th>选</th><th>单据号</th><th>日期</th><th>'+label+'金额</th><th>已'+label+'</th><th>未结</th><th>本次核销</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    html+='<tr>'+
+      '<td><input type="checkbox" class="fp_ord_sel" data-id="'+r.order_id+'" data-type="'+r.order_type+'" data-no="'+r.order_no+'" data-rem="'+r.remaining+'"></td>'+
+      '<td>'+r.order_no+'</td><td>'+(r.order_date||'')+'</td>'+
+      '<td>'+fmtMoney(r.total_amount)+'</td><td>'+fmtMoney(r.paid_amount)+'</td>'+
+      '<td><b style="color:var(--danger)">'+fmtMoney(r.remaining)+'</b></td>'+
+      '<td><input type="number" class="fp_ord_wo" data-rem="'+r.remaining+'" step="0.01" min="0" value="'+r.remaining+'" style="width:92px" disabled></td>'+
+    '</tr>';
+  });
+  html+='</tbody></table>';
+  box.innerHTML=html;
+  box.querySelectorAll('.fp_ord_sel').forEach(cb=>{
+    cb.addEventListener('change',()=>{
+      const tr=cb.closest('tr'); const wo=tr.querySelector('.fp_ord_wo');
+      wo.value = cb.checked ? cb.dataset.rem : 0;
+      wo.disabled = !cb.checked;
+    });
+  });
+}
+
+async function editPayment(id=null, payType=1, preselect=null){
   await Promise.all([loadBankAccounts(), loadCaches()]);
   const isRecv=payType===1;
   const today=new Date().toISOString().slice(0,10);
   showModal(`新增${isRecv?'收款':'付款'}`,`
   <div class="form-grid">
     <div class="form-row"><label>${isRecv?'收款自':'付款至'}*</label>
-      <select id="fp_partner">
+      <select id="fp_partner" onchange="loadPendingOrders(${payType}, +this.value)">
         <option value="0">请选择</option>
         ${_partners.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
       </select>
@@ -2851,9 +3146,25 @@ async function editPayment(id=null, payType=1){
     </div>
     <div class="form-row" style="grid-column:span 2"><label>备注</label><input id="fp_remark" placeholder="可填摘要、用途等"></div>
     <div class="form-row" style="grid-column:span 2"><label>操作人</label><input id="fp_op" placeholder="操作人姓名"></div>
+    <div class="form-row" style="grid-column:span 2"><label>选择待核销单据（可多选；一笔款项可拆多张单，一张单可分多次收付款）</label>
+      <div id="fp_order_list"><span style="color:#888;font-size:12px">请选择往来单位后加载待${isRecv?'收':'付'}单据</span></div>
+    </div>
   </div>`,
   `<button class="btn" onclick="closeModal()">取消</button>
    <button class="btn btn-primary" onclick="savePayment(${payType})">保存</button>`);
+  if(preselect && preselect.partnerId){
+    const sel=document.getElementById('fp_partner');
+    if(sel) sel.value=preselect.partnerId;
+    await loadPendingOrders(payType, preselect.partnerId);
+    const cb=document.querySelector(`#fp_order_list .fp_ord_sel[data-id="${preselect.orderId}"][data-type="${preselect.orderType}"]`);
+    if(cb){
+      cb.checked=true; cb.dispatchEvent(new Event('change'));
+      const amt=document.getElementById('fp_amount');
+      if(amt) amt.value=cb.dataset.rem;
+    }
+  } else {
+    loadPendingOrders(payType, -1);
+  }
 }
 
 async function savePayment(payType){
@@ -2862,6 +3173,16 @@ async function savePayment(payType){
   const partnerId=+document.getElementById('fp_partner').value||0;
   if(amount<=0){toast('金额必须大于0','error');return;}
   if(!bankId){toast('请选择收付款账户','error');return;}
+  // 收集勾选的核销单据
+  const rels=[];
+  document.querySelectorAll('#fp_order_list .fp_ord_sel').forEach(cb=>{
+    if(!cb.checked) return;
+    const tr=cb.closest('tr'); const wo=+tr.querySelector('.fp_ord_wo').value||0;
+    if(wo<=0) return;
+    rels.push({order_type:cb.dataset.type, order_id:+cb.dataset.id, order_no:cb.dataset.no, write_off_amount:wo});
+  });
+  const sumWo=rels.reduce((s,r)=>s+r.write_off_amount,0);
+  if(sumWo>amount+0.01){toast('核销合计 '+fmtMoney(sumWo)+' 超过本次'+(payType===1?'收款':'付款')+'金额 '+fmtMoney(amount),'error');return;}
   const body={
     pay_type:payType,
     pay_date:document.getElementById('fp_date').value,
@@ -2871,7 +3192,7 @@ async function savePayment(payType){
     project_id:+document.getElementById('fp_proj').value||0,
     remark:document.getElementById('fp_remark').value,
     operator:document.getElementById('fp_op').value,
-    relations:[]
+    relations:rels
   };
   try{
     const r=await post('/payments',body);
@@ -2893,8 +3214,15 @@ async function viewPayment(id){
     <div><label style="color:#888">手续费</label><div>${pay.fee>0?fmtMoney(pay.fee):'-'}</div></div>
     <div><label style="color:#888">操作人</label><div>${pay.operator||'-'}</div></div>
     <div><label style="color:#888">备注</label><div>${pay.remark||'-'}</div></div>
-  </div>`,
-  `<button class="btn btn-primary" onclick="closeModal()">关闭</button>`);
+  </div>${pay.relations && pay.relations.length ? `
+  <div style="margin-top:12px">
+    <label style="color:#888;font-size:13px">核销单据（${pay.relations.length} 张）</label>
+    <table class="tbl" style="font-size:12px;margin-top:6px"><thead><tr><th>单据号</th><th>类型</th><th>核销金额</th></tr></thead><tbody>
+      ${pay.relations.map(r=>`<tr><td>${r.order_no}</td><td>${r.order_type==='sale'?'销售单':'采购单'}</td><td>${fmtMoney(r.write_off_amount)}</td></tr>`).join('')}
+    </tbody></table>
+  </div>`:''}`,
+  `<button class="btn btn-primary" onclick="closeModal()">关闭</button>
+   <button class="btn" onclick="printDoc('payment',${id})">🖨 打印</button>`);
 }
 
 async function cancelPayment(id, payType){
@@ -2951,6 +3279,7 @@ async function loadRecons(){
     <td><b style="color:${r.balance_amount>0?'var(--danger)':r.balance_amount<0?'var(--warning)':'var(--success)'}">${fmtMoney(r.balance_amount)}</b></td>
     <td>${RECON_STATUS[r.audit_status]||'-'}</td>
     <td>
+      <button class="btn-link" onclick="printDoc('reconciliation',${r.id})">🖨 打印</button>
       ${r.audit_status===0?`<button class="btn-link btn-success" onclick="doApprove('recon',${r.id})">审核</button>`:''}
       ${r.audit_status===0?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除该对账单？',()=>delRecon(${r.id}))">删除</button>`:''}
       ${r.audit_status===1?`<button class="btn-link" onclick="doUnapprove('recon',${r.id})">反审核</button><button class="btn-link" style="color:var(--danger)" onclick="doVoid('recon',${r.id})">作废</button>`:''}
@@ -3060,6 +3389,7 @@ async function loadExpenses(){
       <td>${r.operator||'-'}</td>
       <td>${r.remark||''}</td>
       <td>
+        <button class="btn-link" onclick="printDoc('expense',${r.id})">🖨 打印</button>
         ${r.audit_status===0?`<button class="btn-link" onclick="editExpense(${r.id})">编辑</button>`:''}
         ${r.audit_status===0?`<button class="btn-link btn-success" onclick="doApprove('expense',${r.id})">审核</button>`:''}
         ${r.audit_status===0?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除该费用单？',()=>deleteExpense(${r.id}))">删除</button>`:''}
@@ -3100,7 +3430,8 @@ async function editExpense(id){
       <div class="form-row" style="grid-column:span 2"><label>执行人</label><input value="${d.operator||''}" disabled style="background:#f5f5f5;color:#999"></div>
     </div>`,
     `<button class="btn btn-primary" onclick="saveExpense(${id})">保存</button>
-     <button class="btn" onclick="closeModal()">取消</button>`);
+     <button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn" onclick="printDoc('expense',${id})">🖨 打印</button>`);
   }catch(e){ toast(e.message,'error'); }
 }
 
@@ -3356,7 +3687,8 @@ const pages = {
   stats: pageStats,
   system: pageSystem,
   users: pageUsers,
-  period: pagePeriod
+  period: pagePeriod,
+  print_tpl: pagePrintTpl
 };
 
 // ══════════════════════════════════════
@@ -3431,6 +3763,7 @@ function applySession(){
     });
   }
   loadUsers();  // 加载用户列表，供业务人员下拉
+  loadCompanyInfo();  // 加载公司信息（打印抬头）
 }
 
 // ══════════════════════════════════════
@@ -3524,6 +3857,118 @@ async function importPartners(input){
 }
 
 // ══════════════════════════════════════
+// ══════════════════════════════════════
+// 页面：打印模板设置
+// ══════════════════════════════════════
+async function pagePrintTpl(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<div class="card" style="max-width:1000px">
+    <div style="font-size:16px;font-weight:700;margin-bottom:16px">🖨️ 打印模板设置</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px;line-height:1.7">
+      可编辑每种单据的打印模板。模板中使用占位符，打印时自动替换为实际数据：<br>
+      <code>{{company}}</code> <code>{{company_address}}</code> <code>{{company_phone}}</code> <code>{{company_tax_no}}</code>
+      <code>{{doc_title}}</code> <code>{{doc_no}}</code> <code>{{doc_date}}</code> <code>{{partner}}</code> <code>{{operator}}</code>
+      <code>{{amount}}</code> <code>{{remark}}</code> <code>{{print_time}}</code><br>
+      各单据专属字段（如 <code>{{project_name}}</code> <code>{{warehouse_name}}</code> <code>{{total_amount}}</code> <code>{{balance_amount}}</code> 等）以及明细表占位符 <code>{{items}}</code>。
+    </div>
+    <div id="ptpl-list" class="ptpl-list">加载中…</div>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #eee">
+    <div style="font-size:16px;font-weight:700;margin-bottom:12px">🏢 公司信息（打印抬头）</div>
+    <div class="form-grid" style="max-width:640px">
+      <div class="form-row"><label>公司名称</label><input id="co_name" placeholder="如：某某有限公司"></div>
+      <div class="form-row"><label>地址</label><input id="co_addr"></div>
+      <div class="form-row"><label>电话</label><input id="co_phone"></div>
+      <div class="form-row"><label>税号</label><input id="co_tax"></div>
+    </div>
+    <button class="btn btn-primary" onclick="saveCompanyInfo()">保存公司信息</button>
+  </div>`;
+  loadCompanyInfo();
+  loadPrintTemplateList();
+}
+
+async function loadCompanyInfo(){
+  try{
+    const co = await get('/system/company');
+    _companyInfo = co || {};
+    const set = (id, v)=>{ const el=document.getElementById(id); if(el) el.value = v||''; };
+    set('co_name', co.company_name); set('co_addr', co.company_address);
+    set('co_phone', co.company_phone); set('co_tax', co.company_tax_no);
+  }catch(e){ /* 忽略 */ }
+}
+
+async function saveCompanyInfo(){
+  const body = {
+    company_name: document.getElementById('co_name').value,
+    company_address: document.getElementById('co_addr').value,
+    company_phone: document.getElementById('co_phone').value,
+    company_tax_no: document.getElementById('co_tax').value
+  };
+  try{ await put('/system/company', body); _companyInfo = body; toast('公司信息已保存'); }
+  catch(e){ toast(e.message, 'error'); }
+}
+
+async function loadPrintTemplateList(){
+  const el = document.getElementById('ptpl-list');
+  try{
+    const list = await get('/print/templates');
+    if(!el) return;
+    el.innerHTML = list.map(t=>`<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #eee;border-radius:8px;padding:12px 16px;margin-bottom:10px">
+      <div><b>${t.doc_type}</b> &nbsp;—&nbsp; ${t.title}</div>
+      <button class="btn btn-primary" onclick="editPrintTemplate('${t.doc_type}')">✏️ 编辑模板</button>
+    </div>`).join('');
+  }catch(e){ if(el) el.innerHTML = '<span style="color:red">加载失败</span>'; }
+}
+
+async function editPrintTemplate(dt){
+  try{
+    const [tpl, co] = await Promise.all([get('/print/template/'+dt), get('/system/company')]);
+    _companyInfo = co || {};
+    showModal('编辑打印模板 - '+tpl.title, `
+      <div style="margin-bottom:8px;font-size:12px;color:#888">使用 {{字段名}} 占位符，{{items}} 渲染明细表。可点「预览打印」查看实际效果。</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <label style="font-size:13px;white-space:nowrap">模板标题</label>
+        <input id="ptpl_title" value="${escAttr(tpl.title)}" style="flex:1">
+      </div>
+      <textarea id="ptpl_content" style="width:100%;height:300px;font-family:Consolas,Menlo,monospace;font-size:12px;padding:8px;border:1px solid #d9d9d9;border-radius:6px;box-sizing:border-box">${escHtml(tpl.content)}</textarea>
+      <div style="margin-top:12px;font-size:13px;font-weight:600">实时预览</div>
+      <div id="ptpl_preview" style="border:1px dashed #ccc;padding:12px;background:#fff;max-height:340px;overflow:auto"></div>
+    `,
+    `<button class="btn" onclick="closeModal()">关闭</button>
+     <button class="btn" onclick="previewPrintTemplate('${dt}')">👁 预览打印</button>
+     <button class="btn btn-primary" onclick="savePrintTemplate('${dt}')">💾 保存模板</button>`);
+    const ta = document.getElementById('ptpl_content');
+    if(ta) ta.addEventListener('input', ()=>renderPrintPreview(dt));
+    renderPrintPreview(dt);
+  }catch(e){ toast(e.message, 'error'); }
+}
+
+function renderPrintPreview(dt){
+  const ta = document.getElementById('ptpl_content');
+  const titleEl = document.getElementById('ptpl_title');
+  if(!ta) return;
+  const data = getPrintData(dt, getSamplePrintData(dt));
+  data.doc_title = titleEl ? titleEl.value : (PRINT_DOC_TYPES[dt] || dt);
+  const html = fillPrintTemplate(ta.value, data);
+  const pv = document.getElementById('ptpl_preview');
+  if(pv) pv.innerHTML = html;
+}
+
+async function savePrintTemplate(dt){
+  const title = document.getElementById('ptpl_title').value;
+  const content = document.getElementById('ptpl_content').value;
+  try{ await put('/print/template/'+dt, {title, content}); toast('模板已保存'); }
+  catch(e){ toast(e.message, 'error'); }
+}
+
+function previewPrintTemplate(dt){
+  const ta = document.getElementById('ptpl_content');
+  const titleEl = document.getElementById('ptpl_title');
+  const data = getPrintData(dt, getSamplePrintData(dt));
+  data.doc_title = titleEl ? titleEl.value : (PRINT_DOC_TYPES[dt] || dt);
+  const html = fillPrintTemplate(ta.value, data);
+  openPrintWindow(data.doc_title, html);
+}
+
 // 页面：系统管理（备份 + 导入导出中心）
 // ══════════════════════════════════════
 async function pageSystem(){
@@ -3686,10 +4131,10 @@ async function pageUsers(){
       </table>
     </div>
   </div>`;
-  loadUsers();
+  loadUserTable();
 }
 
-async function loadUsers(){
+async function loadUserTable(){
   const tbody = document.getElementById('user-tbody');
   if(!tbody) return;
   try{
@@ -3785,7 +4230,7 @@ async function saveUser(uid){
       toast('用户创建成功');
     }
     closeModal();
-    loadUsers();
+    loadUserTable();
   }catch(e){ toast(e.message,'error'); }
 }
 
@@ -3794,7 +4239,7 @@ async function delUser(id, username){
   try{
     await del('/users/'+id);
     toast('删除成功');
-    loadUsers();
+    loadUserTable();
   }catch(e){ toast(e.message,'error'); }
 }
 

@@ -2,6 +2,8 @@
 tesseract/
 dist/
 build/
+dist_bak/
+build_bak/
 *.exe
 
 # 顶层 installer 目录全是安装包 exe

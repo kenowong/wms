@@ -608,6 +608,17 @@ def init_db():
         except Exception:
             pass  # 已存在则跳过
 
+    # ── 毛利口径修复（历史数据自愈）──
+    # 旧逻辑：毛利 = 含税收入(total_amount) - 不含税成本(avg_cost)，把销项税算成利润，毛利虚高。
+    # 新口径：毛利 = 不含税收入(untax_amount) - 不含税成本(cost_amount)，两边同口径。
+    # 幂等：每次启动对 status>=3 的销售单重算一次，不影响未出库单（gross_profit 保持 0）。
+    try:
+        c.execute("""UPDATE sale_orders SET gross_profit =
+            COALESCE(untax_amount, total_amount - COALESCE(tax_amount,0)) - COALESCE(cost_amount,0)
+            WHERE status>=3""")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
     print(f"数据库初始化完成: {DB_PATH}")
