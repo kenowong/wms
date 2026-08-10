@@ -49,8 +49,6 @@ Name: "chinese"; MessagesFile: "compiler:Default.isl"
 [Files]
 ; 主程序（PyInstaller 单文件 exe）
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-; 发票文字 OCR 引擎（Tesseract，离线识别无二维码发票时兜底）
-Source: "tesseract\*"; DestDir: "{app}\tesseract"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 ; 桌面快捷方式
