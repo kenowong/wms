@@ -67,6 +67,7 @@ def init_db():
         code TEXT UNIQUE,
         name TEXT NOT NULL,
         type INTEGER DEFAULT 3,  -- 1供应商 2客户 3两者
+        is_referrer INTEGER DEFAULT 0,  -- 0否 1是介绍方（可拿提成，与供应商/客户身份互不冲突）
         contact TEXT,
         phone TEXT,
         address TEXT,
@@ -186,6 +187,14 @@ def init_db():
         untax_amount REAL DEFAULT 0,
         cost_amount REAL DEFAULT 0,
         gross_profit REAL DEFAULT 0,
+        referrer_id INTEGER DEFAULT 0,        -- 介绍方（往来单位 id，0=无）
+        referrer_name TEXT DEFAULT '',        -- 介绍方名称（冗余，便于列表/打印直接展示）
+        commission_amount REAL DEFAULT 0,     -- 谈定的提成总额（含税，公司为此单付出的佣金成本）
+        commission_tax_rate REAL DEFAULT 0,   -- 提成税点 %（按产品不同，常见 4/5/10）
+        commission_tax REAL DEFAULT 0,        -- 代扣税额 = commission_amount * rate
+        commission_payable REAL DEFAULT 0,    -- 应付实付 = commission_amount - commission_tax
+        commission_paid REAL DEFAULT 0,       -- 已支付累计（按实付口径累加）
+        commission_status INTEGER DEFAULT 0,  -- 0无提成 1待支付 2部分支付 3已付清
         status INTEGER DEFAULT 0, -- 0草稿 1待审核 2已审核 3已出库 4已关闭
         invoice_need INTEGER DEFAULT 0,      -- 0无需开票 1需要开票
         invoice_type_req TEXT DEFAULT '',    -- 增值税发票/普通发票/收据
@@ -378,6 +387,28 @@ def init_db():
         FOREIGN KEY(payment_id) REFERENCES payments(id)
     )''')
 
+    # ── 介绍方提成支付流水 ──
+    # 说明：提成在销售单出库时即按「扣点后实付金额」计入成本冲减毛利（见 sale_orders.gross_profit），
+    # 因此支付环节只记录资金流出，不再生成费用单，避免利润被重复扣减。
+    c.execute('''CREATE TABLE IF NOT EXISTS commission_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pay_no TEXT NOT NULL UNIQUE,
+        sale_order_id INTEGER NOT NULL,
+        sale_order_no TEXT DEFAULT '',
+        referrer_id INTEGER DEFAULT 0,
+        referrer_name TEXT DEFAULT '',
+        pay_date TEXT,
+        amount REAL DEFAULT 0,          -- 本次实付（扣掉税点后真正打给介绍方的钱）
+        tax_amount REAL DEFAULT 0,      -- 本次对应的代扣税额
+        gross_amount REAL DEFAULT 0,    -- 本次冲抵的提成总额 = amount + tax_amount
+        bank_account_id INTEGER DEFAULT 0,
+        remark TEXT,
+        operator TEXT,
+        status INTEGER DEFAULT 1,       -- 1正常 0已撤销
+        audit_status INTEGER DEFAULT 0, -- 0未审核 1已审核 2已作废
+        created_at TEXT DEFAULT (datetime('now','localtime'))
+    )''')
+
     # ── 对账单 ──
     c.execute('''CREATE TABLE IF NOT EXISTS reconciliations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -460,6 +491,68 @@ def init_db():
         account_name TEXT,
         balance REAL DEFAULT 0,
         UNIQUE(fiscal_year, bank_account_id)
+    )''')
+
+    # ── 期初建账（手动录入的开账起点，区别于期末结转自动生成）──
+    # 期初库存：商品 + 仓库 + 项目 的期初数量与成本
+    c.execute('''CREATE TABLE IF NOT EXISTS opening_inventory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goods_id INTEGER NOT NULL,
+        warehouse_id INTEGER NOT NULL,
+        project_id INTEGER DEFAULT 0,
+        qty REAL DEFAULT 0,
+        avg_cost REAL DEFAULT 0,
+        total_cost REAL DEFAULT 0,
+        remark TEXT,
+        UNIQUE(goods_id, warehouse_id, project_id)
+    )''')
+
+    # ── 期初欠款：应收（客户）/应付（供应商）──
+    c.execute('''CREATE TABLE IF NOT EXISTS opening_debt (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        partner_id INTEGER NOT NULL,
+        partner_name TEXT,
+        direction INTEGER DEFAULT 1,   -- 1应收(客户) 2应付(供应商)
+        balance REAL DEFAULT 0,
+        remark TEXT,
+        UNIQUE(partner_id, direction)
+    )''')
+
+    # ── 期初银行账户余额 ──
+    c.execute('''CREATE TABLE IF NOT EXISTS opening_bank (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bank_account_id INTEGER NOT NULL,
+        account_name TEXT,
+        balance REAL DEFAULT 0,
+        UNIQUE(bank_account_id)
+    )''')
+
+    # ── 期初现金/备用金 ──
+    c.execute('''CREATE TABLE IF NOT EXISTS opening_cash (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        holder TEXT,         -- 名称，如"现金""A项目备用金"
+        balance REAL DEFAULT 0,
+        remark TEXT
+    )''')
+
+    # ── 期初固定资产 ──
+    c.execute('''CREATE TABLE IF NOT EXISTS opening_asset (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        category TEXT,
+        spec TEXT,
+        original_value REAL DEFAULT 0,
+        accum_depreciation REAL DEFAULT 0,
+        remark TEXT
+    )''')
+
+    # ── 期初应用状态（单行，id=1）──
+    c.execute('''CREATE TABLE IF NOT EXISTS opening_meta (
+        id INTEGER PRIMARY KEY CHECK (id=1),
+        applied INTEGER DEFAULT 0,
+        applied_at TEXT,
+        applied_by TEXT,
+        version INTEGER DEFAULT 0
     )''')
 
     # ── 用户与权限 ──
@@ -561,6 +654,19 @@ def init_db():
         ("payments", "audit_status", "INTEGER DEFAULT 0"),
         ("expenses", "audit_status", "INTEGER DEFAULT 0"),
         ("reconciliations", "audit_status", "INTEGER DEFAULT 0"),
+        # 账户类型：1银行 2现金/备用金（期初的现金期初以此区分，纳入账户体系）
+        ("bank_accounts", "acct_type", "INTEGER DEFAULT 1"),
+        # 介绍方提成：往来单位标记 + 商品默认提成税点 + 销售单提成全套字段
+        ("partners", "is_referrer", "INTEGER DEFAULT 0"),
+        ("goods", "default_commission_tax_rate", "REAL DEFAULT 0"),
+        ("sale_orders", "referrer_id", "INTEGER DEFAULT 0"),
+        ("sale_orders", "referrer_name", "TEXT DEFAULT ''"),
+        ("sale_orders", "commission_amount", "REAL DEFAULT 0"),
+        ("sale_orders", "commission_tax_rate", "REAL DEFAULT 0"),
+        ("sale_orders", "commission_tax", "REAL DEFAULT 0"),
+        ("sale_orders", "commission_payable", "REAL DEFAULT 0"),
+        ("sale_orders", "commission_paid", "REAL DEFAULT 0"),
+        ("sale_orders", "commission_status", "INTEGER DEFAULT 0"),
     ]:
         try:
             c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {defn}")
@@ -612,9 +718,20 @@ def init_db():
     # 旧逻辑：毛利 = 含税收入(total_amount) - 不含税成本(avg_cost)，把销项税算成利润，毛利虚高。
     # 新口径：毛利 = 不含税收入(untax_amount) - 不含税成本(cost_amount)，两边同口径。
     # 幂等：每次启动对 status>=3 的销售单重算一次，不影响未出库单（gross_profit 保持 0）。
+    # 提成冲减：介绍方提成属于为成交付出的佣金成本，同样从毛利中扣除，
+    # 否则「介绍出去的单」毛利会虚高。成本口径按「扣点后的实付金额」commission_payable
+    # （谈定 2000、税点 4% → 代扣 80、实付 1920，成本记 1920；代扣部分由介绍方承担）。
+    # 自愈：先补齐 payable 为空的历史数据，再重算毛利。
+    try:
+        c.execute("""UPDATE sale_orders SET commission_payable =
+            ROUND(COALESCE(commission_amount,0) - COALESCE(commission_tax,0), 2)
+            WHERE COALESCE(commission_amount,0)>0 AND COALESCE(commission_payable,0)=0""")
+    except Exception:
+        pass
     try:
         c.execute("""UPDATE sale_orders SET gross_profit =
-            COALESCE(untax_amount, total_amount - COALESCE(tax_amount,0)) - COALESCE(cost_amount,0)
+            ROUND(COALESCE(untax_amount, total_amount - COALESCE(tax_amount,0))
+            - COALESCE(cost_amount,0) - COALESCE(commission_payable,0), 2)
             WHERE status>=3""")
     except Exception:
         pass

@@ -250,6 +250,41 @@ def pending_orders(pay_type: int = 1, partner_id: int = -1):
                 'paid_amount': round(paid, 2),
                 'remaining': remaining,
             })
+        # 期初欠款（仅应用期初后、且仍有未核销余额）：direction 1 应收→收款，2 应付→付款
+        _meta = conn.execute("SELECT applied FROM opening_meta WHERE id=1").fetchone()
+        if _meta and _meta[0]:
+            od_rows = conn.execute(
+                "SELECT partner_id, partner_name, direction, COALESCE(SUM(balance),0) AS bal "
+                "FROM opening_debt GROUP BY partner_id, direction"
+            ).fetchall()
+            for od in od_rows:
+                bal = od['bal'] or 0
+                if bal <= 0:
+                    continue
+                if (pay_type == 1 and od['direction'] != 1) or (pay_type == 2 and od['direction'] != 2):
+                    continue
+                if partner_id and partner_id >= 0 and od['partner_id'] != partner_id:
+                    continue
+                wo = conn.execute(
+                    """SELECT COALESCE(SUM(pr.write_off_amount),0) FROM payment_relations pr
+                       JOIN payments p ON pr.payment_id=p.id
+                       WHERE pr.order_type='opening' AND pr.order_id=? AND p.pay_type=?
+                         AND p.status=1 AND p.audit_status!=2""",
+                    (od['partner_id'], pay_type)).fetchone()[0]
+                rem = round(bal - wo, 2)
+                if rem <= 0.001:
+                    continue
+                results.append({
+                    'order_type': 'opening',
+                    'order_id': od['partner_id'],
+                    'order_no': '期初欠款',
+                    'order_date': '',
+                    'partner_id': od['partner_id'],
+                    'partner_name': od['partner_name'],
+                    'total_amount': bal,
+                    'paid_amount': round(wo, 2),
+                    'remaining': rem,
+                })
         return results
     finally:
         conn.close()
@@ -295,12 +330,17 @@ def create_payment(data: dict):
                 continue
             otype = rel.get('order_type', '')
             oid = int(rel.get('order_id', 0) or 0)
-            if otype not in ('purchase', 'sale') or oid <= 0:
+            if otype not in ('purchase', 'sale', 'opening') or oid <= 0:
                 raise HTTPException(400, "关联单据类型或编号无效")
             if otype == 'sale':
                 tot = conn.execute("SELECT total_amount FROM sale_orders WHERE id=?", (oid,)).fetchone()
-            else:
+            elif otype == 'purchase':
                 tot = conn.execute("SELECT total_amount FROM purchase_orders WHERE id=?", (oid,)).fetchone()
+            else:  # opening 期初欠款：oid 存 partner_id，余额取对应方向期初
+                od = conn.execute(
+                    "SELECT COALESCE(SUM(balance),0) FROM opening_debt WHERE partner_id=? AND direction=?",
+                    (oid, 1 if pay_type == 1 else 2)).fetchone()
+                tot = {'total_amount': od[0]} if od else None
             if not tot:
                 raise HTTPException(400, "关联单据不存在")
             # 已核销金额（仅统计有效付款：status=1 且未作废 audit_status!=2）
@@ -501,7 +541,16 @@ def generate_reconciliation(data: dict):
 
         total_order = conn.execute(order_sql, o_params).fetchone()[0]
         total_paid = conn.execute(paid_sql, p_params).fetchone()[0]
-        balance = total_order - total_paid
+        # 叠加期初应收/应付余额（仅应用期初后；direction 与 recon_type 一致：1应收 2应付）
+        # 注：total_paid 已含核销期初的收付款，故期初余额直接相加，避免重复扣减
+        _meta = conn.execute("SELECT applied FROM opening_meta WHERE id=1").fetchone()
+        opening_bal = 0.0
+        if _meta and _meta[0]:
+            opening_bal = conn.execute(
+                "SELECT COALESCE(SUM(balance),0) FROM opening_debt WHERE partner_id=? AND direction=?",
+                (partner_id, recon_type)
+            ).fetchone()[0]
+        balance = round(total_order - total_paid + opening_bal, 2)
 
         partner = conn.execute("SELECT name FROM partners WHERE id=?", (partner_id,)).fetchone()
         partner_name = partner['name'] if partner else ''
@@ -616,6 +665,14 @@ def finance_summary():
             (SELECT SUM(p.amount) FROM payments p WHERE p.pay_type=2 AND p.status=1 AND p.audit_status!=2),0)
            FROM purchase_orders po WHERE po.status>=2"""
     ).fetchone()[0]
+    # 叠加期初应收/应付（仅在「应用期初」后纳入余额）
+    # 注：基础 ar/ap 已减去全部收款/付款（含核销期初的款项），故期初余额直接相加即可，避免重复扣减
+    _meta = conn.execute("SELECT applied FROM opening_meta WHERE id=1").fetchone()
+    _applied = bool(_meta and _meta[0])
+    opening_ar = conn.execute("SELECT COALESCE(SUM(balance),0) FROM opening_debt WHERE direction=1").fetchone()[0] if _applied else 0
+    opening_ap = conn.execute("SELECT COALESCE(SUM(balance),0) FROM opening_debt WHERE direction=2").fetchone()[0] if _applied else 0
+    ar = round((ar or 0) + (opening_ar or 0), 2)
+    ap = round((ap or 0) + (opening_ap or 0), 2)
     conn.close()
     return {
         "month_recv": recv,
@@ -814,3 +871,249 @@ def expense_report(year: str = "", month: str = "", user: dict = Depends(get_cur
     return {"year": year, "month": month, "months": months,
             "categories": cats, "purchase_fee": round(pf, 2),
             "sale_fee": round(sf, 2), "total": total}
+
+
+# ══════════════════════════════════════════
+# 介绍方提成（佣金）管理
+# ══════════════════════════════════════════
+# 业务口径：
+#   靠介绍成交的单子要给介绍方提成（好处费）。提成按「谈定总额 + 税点」拆成
+#   代扣税额与实付金额——例：谈定 2000、税点 4% → 代扣 80、实付 1920。
+#   提成在出库时已按「扣点后实付金额」冲减销售单毛利（sale_orders.gross_profit），
+#   即谈定 2000、税点 4% → 代扣 80、成本记实付 1920。
+#   所以本模块只负责「看得到 + 付得掉 + 有流水」，支付环节不再生成费用单，
+#   否则同一笔佣金会在利润里被扣两次。
+
+
+def _gen_commission_pay_no(conn) -> str:
+    """生成提成支付单号 TC-YYYYMMDD-NNNN"""
+    today = datetime.date.today().strftime('%Y%m%d')
+    pat = f"TC-{today}-%"
+    row = conn.execute(
+        "SELECT pay_no FROM commission_payments WHERE pay_no LIKE ? ORDER BY pay_no DESC LIMIT 1",
+        (pat,)).fetchone()
+    seq = 1
+    if row:
+        try:
+            seq = int(row[0].split('-')[-1]) + 1
+        except Exception:
+            pass
+    return f"TC-{today}-{seq:04d}"
+
+
+@router.get("/commissions")
+def list_commissions(pay_status: int = -1, referrer_id: int = -1, keyword: str = "",
+                     user: dict = Depends(get_current_user)):
+    """提成台账：所有登记了介绍方提成的销售单（出库前也能看到，便于提前安排资金）"""
+    conn = get_conn()
+    sql = """SELECT o.id, o.order_no, o.order_date, o.status,
+        o.referrer_id, o.referrer_name,
+        COALESCE(o.commission_amount,0) commission_amount,
+        COALESCE(o.commission_tax_rate,0) commission_tax_rate,
+        COALESCE(o.commission_tax,0) commission_tax,
+        COALESCE(o.commission_payable,0) commission_payable,
+        COALESCE(o.commission_paid,0) commission_paid,
+        COALESCE(o.commission_status,0) commission_status,
+        COALESCE(o.untax_amount,0) untax_amount,
+        COALESCE(o.total_amount,0) total_amount,
+        COALESCE(o.cost_amount,0) cost_amount,
+        COALESCE(o.gross_profit,0) gross_profit,
+        COALESCE(c.name,'') customer_name, COALESCE(p.name,'') project_name
+        FROM sale_orders o
+        LEFT JOIN partners c ON o.customer_id=c.id
+        LEFT JOIN projects p ON o.project_id=p.id
+        WHERE COALESCE(o.commission_amount,0) > 0"""
+    params = []
+    if pay_status >= 0:
+        sql += " AND COALESCE(o.commission_status,0)=?"
+        params.append(pay_status)
+    if referrer_id >= 0:
+        sql += " AND o.referrer_id=?"
+        params.append(referrer_id)
+    if keyword:
+        sql += " AND (o.order_no LIKE ? OR COALESCE(o.referrer_name,'') LIKE ? OR COALESCE(c.name,'') LIKE ?)"
+        params += [f"%{keyword}%"] * 3
+    sql += " ORDER BY o.order_date DESC, o.id DESC"
+    rows = conn.execute(sql, params).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['unpaid'] = round(float(d['commission_payable'] or 0) - float(d['commission_paid'] or 0), 2)
+        result.append(d)
+    conn.close()
+    return result
+
+
+@router.get("/commissions/summary")
+def commission_summary(user: dict = Depends(get_current_user)):
+    """提成汇总：提成总额 / 代扣税 / 应付实付 / 已付 / 未付"""
+    conn = get_conn()
+    r = conn.execute("""SELECT
+        COALESCE(SUM(commission_amount),0) total_amount,
+        COALESCE(SUM(commission_tax),0) total_tax,
+        COALESCE(SUM(commission_payable),0) total_payable,
+        COALESCE(SUM(commission_paid),0) total_paid,
+        COUNT(*) order_count
+        FROM sale_orders WHERE COALESCE(commission_amount,0)>0""").fetchone()
+    conn.close()
+    payable = float(r['total_payable'] or 0)
+    paid = float(r['total_paid'] or 0)
+    return {
+        "order_count": r['order_count'],
+        "total_amount": round(float(r['total_amount'] or 0), 2),
+        "total_tax": round(float(r['total_tax'] or 0), 2),
+        "total_payable": round(payable, 2),
+        "total_paid": round(paid, 2),
+        "unpaid": round(payable - paid, 2),
+    }
+
+
+@router.post("/commissions/{sale_id}/pay")
+def pay_commission(sale_id: int, data: dict, user: dict = Depends(get_current_user)):
+    """支付介绍方提成（支持分次付清）。
+
+    只动资金：写流水 + 累计已付 + 扣银行账户余额。
+    不动毛利——提成在出库时已经整额冲减过利润，这里再扣就重复了。
+    """
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM sale_orders WHERE id=?", (sale_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "销售单不存在")
+        if float(row['commission_amount'] or 0) <= 0:
+            raise HTTPException(400, "该销售单没有登记介绍方提成")
+        if not (row['referrer_id'] or 0):
+            raise HTTPException(400, "该单未指定介绍方，请先补录")
+
+        pay_date = data.get('pay_date') or datetime.date.today().isoformat()
+        assert_dates_open(conn, pay_date, label="提成支付")
+        amount = round(float(data.get('amount', 0) or 0), 2)
+        if amount <= 0:
+            raise HTTPException(400, "支付金额必须大于 0")
+
+        payable = float(row['commission_payable'] or 0)
+        paid = float(row['commission_paid'] or 0)
+        unpaid = round(payable - paid, 2)
+        if amount > unpaid + 0.01:
+            raise HTTPException(400, f"本次支付 {amount} 元超过剩余未付 {unpaid} 元")
+
+        # 本次实付按税点还原出对应的提成总额与代扣税，便于对账
+        rate = float(row['commission_tax_rate'] or 0)
+        gross_part = round(amount / (1 - rate / 100.0), 2) if rate > 0 else amount
+        tax_part = round(gross_part - amount, 2)
+
+        bank_account_id = int(data.get('bank_account_id', 0) or 0)
+        pay_no = _gen_commission_pay_no(conn)
+        conn.execute("""INSERT INTO commission_payments(pay_no,sale_order_id,sale_order_no,
+            referrer_id,referrer_name,pay_date,amount,tax_amount,gross_amount,
+            bank_account_id,remark,operator)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (pay_no, sale_id, row['order_no'], row['referrer_id'] or 0,
+             row['referrer_name'] or '', pay_date, amount, tax_part, gross_part,
+             bank_account_id, data.get('remark', ''), user['display_name']))
+
+        new_paid = round(paid + amount, 2)
+        new_status = 3 if new_paid >= payable - 0.01 else 2
+        conn.execute(
+            "UPDATE sale_orders SET commission_paid=?,commission_status=? WHERE id=?",
+            (new_paid, new_status, sale_id))
+
+        if bank_account_id:
+            conn.execute("UPDATE bank_accounts SET balance=balance-? WHERE id=?",
+                         (amount, bank_account_id))
+
+        conn.commit()
+        return {"ok": True, "pay_no": pay_no, "paid": new_paid,
+                "unpaid": round(payable - new_paid, 2)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(400, str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/commission_payments")
+def list_commission_payments(sale_id: int = -1, referrer_id: int = -1,
+                             user: dict = Depends(get_current_user)):
+    """提成支付流水"""
+    conn = get_conn()
+    sql = """SELECT cp.*, COALESCE(b.name,'') bank_account_name
+        FROM commission_payments cp
+        LEFT JOIN bank_accounts b ON cp.bank_account_id=b.id
+        WHERE cp.status=1"""
+    params = []
+    if sale_id >= 0:
+        sql += " AND cp.sale_order_id=?"
+        params.append(sale_id)
+    if referrer_id >= 0:
+        sql += " AND cp.referrer_id=?"
+        params.append(referrer_id)
+    sql += " ORDER BY cp.pay_date DESC, cp.id DESC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _commission_payment_guard(conn, pid, allow):
+    row = conn.execute("SELECT * FROM commission_payments WHERE id=?", (pid,)).fetchone()
+    if not row:
+        raise HTTPException(404, "支付记录不存在")
+    if row['status'] != 1:
+        raise HTTPException(400, "该支付记录已撤销")
+    if row['audit_status'] not in allow:
+        raise HTTPException(400, "该支付已审核/已作废，不能修改。请先反审核。")
+    return row
+
+
+@router.post("/commission_payments/{pid}/approve")
+def approve_commission_payment(pid: int, user: dict = Depends(get_current_user)):
+    conn = get_conn(); row = _commission_payment_guard(conn, pid, (0,))
+    assert_dates_open(conn, row['pay_date'], label="提成支付")
+    conn.execute("UPDATE commission_payments SET audit_status=1 WHERE id=?", (pid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+
+@router.post("/commission_payments/{pid}/unapprove")
+def unapprove_commission_payment(pid: int, user: dict = Depends(get_current_user)):
+    conn = get_conn(); row = _commission_payment_guard(conn, pid, (1,))
+    assert_dates_open(conn, row['pay_date'], label="提成支付")
+    conn.execute("UPDATE commission_payments SET audit_status=0 WHERE id=?", (pid,))
+    conn.commit(); conn.close(); return {"ok": True}
+
+
+@router.post("/commission_payments/{pid}/void")
+def void_commission_payment(pid: int, user: dict = Depends(get_current_user)):
+    """撤销提成支付：回退已付金额、恢复银行账户余额"""
+    conn = get_conn()
+    try:
+        row = _commission_payment_guard(conn, pid, (0,))
+        assert_dates_open(conn, row['pay_date'], label="提成支付")
+        sale_id = row['sale_order_id']
+        amt = float(row['amount'] or 0)
+        so = conn.execute("SELECT * FROM sale_orders WHERE id=?", (sale_id,)).fetchone()
+        if so:
+            new_paid = round(float(so['commission_paid'] or 0) - amt, 2)
+            if new_paid < 0:
+                new_paid = 0
+            payable = float(so['commission_payable'] or 0)
+            new_status = 0
+            if payable > 0:
+                new_status = 3 if new_paid >= payable - 0.01 else (2 if new_paid > 0 else 1)
+            conn.execute(
+                "UPDATE sale_orders SET commission_paid=?,commission_status=? WHERE id=?",
+                (new_paid, new_status, sale_id))
+        if row['bank_account_id']:
+            conn.execute("UPDATE bank_accounts SET balance=balance+? WHERE id=?",
+                         (amt, row['bank_account_id']))
+        conn.execute("UPDATE commission_payments SET status=0,audit_status=2 WHERE id=?", (pid,))
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(400, str(e))
+    finally:
+        conn.close()

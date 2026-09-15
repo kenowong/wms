@@ -93,6 +93,29 @@ def list_checks(operator: str = "", business_person: str = ""):
     conn.close()
     return [dict(r) for r in rows]
 
+@router.delete("/check/{cid}")
+def delete_check(cid: int, user: dict = Depends(get_current_user)):
+    """删除盘点单：仅草稿(0)或盘点中(1)允许删除；已完成(已调整库存)需先反审核/作废。"""
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM inventory_checks WHERE id=?", (cid,)).fetchone()
+        if not row:
+            conn.close(); raise HTTPException(404, "盘点单不存在")
+        if row['status'] not in (0, 1):
+            conn.close()
+            raise HTTPException(400, "仅草稿/盘点中状态可删除；已完成的盘点单请先「反审核」再删除")
+        conn.execute("DELETE FROM check_items WHERE check_id=?", (cid,))
+        conn.execute("DELETE FROM inventory_checks WHERE id=?", (cid,))
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(400, str(e))
+    finally:
+        conn.close()
+
 @router.post("/check")
 def create_check(data: dict, user: dict = Depends(get_current_user)):
     conn = get_conn()
@@ -343,7 +366,7 @@ def create_invoice(data: InvoiceModel):
         conn.close()
 
 def _invoice_guard(conn, iid, allow):
-    row = conn.execute("SELECT audit_status FROM invoices WHERE id=?", (iid,)).fetchone()
+    row = conn.execute("SELECT audit_status, invoice_date FROM invoices WHERE id=?", (iid,)).fetchone()
     if not row:
         raise HTTPException(404, "发票不存在")
     if row['audit_status'] not in allow:

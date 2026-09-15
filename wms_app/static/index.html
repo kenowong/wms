@@ -178,6 +178,18 @@ tr:hover td{background:#fafffe}
   .login-box{width:90vw;max-width:360px;padding:32px 24px}
 }
 
+/* 手机竖屏（≤600px）：筛选栏控件满宽、打印模板编辑器纵向堆叠、宽表更紧凑 */
+@media(max-width:600px){
+  .search-bar input,.search-bar select{flex:1 1 100%;width:100%!important}
+  .search-bar label{display:block;width:100%;margin:2px 0}
+  .search-bar .btn{flex:1 1 auto}
+  .pted-wrap{flex-direction:column}
+  .pted-pan,.pted-props{width:100%;flex:none}
+  .pted-canvas{min-height:240px}
+  th,td{padding:7px 8px}
+  table{font-size:12px}
+}
+
 /* 标签页 */
 .tabs{display:flex;border-bottom:2px solid #f0f0f0;margin-bottom:16px;gap:0}
 .tab{padding:10px 20px;cursor:pointer;font-size:14px;color:#666;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.2s}
@@ -272,6 +284,7 @@ tr:hover td{background:#fafffe}
       <div class="nav-item" data-perm="reconciliation" onclick="nav('reconciliation')"><span class="icon">🧮</span>对账管理</div>
       <div class="nav-item" data-perm="expense" onclick="nav('expense')"><span class="icon">🧾</span>费用单据</div>
       <div class="nav-item" data-perm="expense" onclick="nav('expense_report')"><span class="icon">📒</span>费用报表</div>
+      <div class="nav-item" data-perm="commission" onclick="nav('commission')"><span class="icon">🤝</span>介绍提成</div>
     </div>
     <div class="nav-group">
       <div class="nav-title">发票</div>
@@ -290,6 +303,7 @@ tr:hover td{background:#fafffe}
       <div class="nav-title">系统管理</div>
       <div class="nav-item" data-perm="system" onclick="nav('system')"><span class="icon">🗄️</span>备份与导入导出</div>
       <div class="nav-item" data-perm="system" onclick="nav('period')"><span class="icon">📅</span>期末处理（封账/结转）</div>
+      <div class="nav-item" data-perm="system" onclick="nav('opening')"><span class="icon">📒</span>期初建账设置</div>
       <div class="nav-item admin-only" data-perm="users" onclick="nav('users')" style="display:none"><span class="icon">👤</span>用户管理</div>
       <div class="nav-item" data-perm="system" onclick="nav('print_tpl')"><span class="icon">🖨️</span>打印模板</div>
     </div>
@@ -529,7 +543,7 @@ function getPrintData(dt, raw){
     items = (raw.relations||[]).map(r=>({name:r.order_no,
       spec:(r.order_type==='sale'?'销售单':'采购单'), unit:'', qty:'', price:'', amount:r.write_off_amount}));
   } else if(dt === 'invoice'){
-    Object.assign(base, {doc_no:raw.invoice_no, doc_date:fmtDate(raw.invoice_date),
+    Object.assign(base, {doc_no:raw.invoice_no, invoice_no:raw.invoice_no, doc_date:fmtDate(raw.invoice_date),
       partner:raw.partner_name||'', invoice_code:raw.invoice_code||'', invoice_type:raw.invoice_type||'',
       project_name:raw.project_name||'', tax_rate:raw.tax_rate||0, untax_amount:raw.untax_amount||0,
       tax_amount:raw.tax_amount||0, total_amount:raw.total_amount||0, status:raw.status||'', amount:raw.total_amount||0});
@@ -694,6 +708,27 @@ function partnerOpts(type=-1,sel=''){
   return _partners.filter(p=>type<0||p.type==3||p.type==type)
     .map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${p.name}</option>`).join('');
 }
+// 介绍方下拉：列出全部往来单位，已标记为介绍方的加 🤝 前缀
+function referrerOpts(sel=''){
+  return (_partners||[]).map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${p.is_referrer==1?'🤝 ':''}${p.name}</option>`).join('');
+}
+// 提成测算：谈定总额按税点拆出「代扣税 + 实付」，并提示实付额会冲减毛利
+function calcSOComm(){
+  const amt=parseFloat(document.getElementById('so_comm')?.value)||0;
+  const rate=parseFloat(document.getElementById('so_comm_rate')?.value)||0;
+  const tip=document.getElementById('so_comm_tip');
+  if(!tip) return;
+  if(amt<=0){ tip.innerHTML='<span style="color:#bbb">未登记提成（本单无介绍方佣金）</span>'; return; }
+  const tax=Math.round(amt*rate)/100;
+  const payable=Math.round((amt-tax)*100)/100;
+  tip.innerHTML=`谈定提成 <b style="color:var(--danger)">¥${amt.toFixed(2)}</b>　税点 <b>${rate}%</b>　`
+    +`代扣税 <b style="color:var(--warning)">¥${tax.toFixed(2)}</b>　实付介绍方 <b style="color:var(--success)">¥${payable.toFixed(2)}</b>`
+    +`<br><span style="color:#999;font-size:12px">这 ¥${amt.toFixed(2)} 会作为佣金成本冲减本单毛利，利润统计自动扣除，不会虚高。</span>`;
+}
+function setCommRate(v){
+  const el=document.getElementById('so_comm_rate');
+  if(el){ el.value=v; calcSOComm(); }
+}
 function warehouseOpts(sel=''){
   return _warehouses.map(w=>`<option value="${w.id}" ${sel==w.id?'selected':''}>${w.name}</option>`).join('');
 }
@@ -731,11 +766,12 @@ const PAGE_TITLES = {
   purchase:'采购入库',sale:'销售出库',requisition:'耗材领用',
   inventory:'库存台账',alert:'库存预警',logs:'库存流水',check:'库存盘点',
   bank_accounts:'银行账户',payment_recv:'收款管理',payment_pay:'付款管理',reconciliation:'对账管理',
-  expense:'费用单据',expense_report:'费用报表',
+  expense:'费用单据',expense_report:'费用报表',commission:'介绍提成',
   inv_in:'进项发票',inv_out:'出项发票',projects:'项目台账',stats:'数据报表',
   system:'备份与导入导出',
   users:'用户管理',
   period:'期末处理（封账/结转）',
+  opening:'期初建账设置',
   print_tpl:'打印模板'
 };
 // 模块权限清单（key 与后端 PATH_MODULE 一致），用于员工权限设置
@@ -745,7 +781,7 @@ const MODULE_LIST = [
   ['purchase','采购入库'],['sale','销售出库'],['requisition','耗材领用'],
   ['inventory','库存台账'],['alert','库存预警'],['logs','库存流水'],['check','库存盘点'],
   ['bank_accounts','银行账户'],['payment','收付款管理'],['reconciliation','对账管理'],
-  ['expense','费用管理'],['invoice','发票管理'],['projects','项目台账'],['stats','数据报表'],
+  ['expense','费用管理'],['commission','介绍提成管理'],['invoice','发票管理'],['projects','项目台账'],['stats','数据报表'],
   ['system','系统设置(备份/导入导出)']
 ];
 function toggleSidebar(){
@@ -1008,7 +1044,7 @@ async function loadPartners(){
   const TYPE={1:'供应商',2:'客户',3:'两者'};
   document.getElementById('partners-tbody').innerHTML=rows.length
     ?rows.map(p=>`<tr>
-      <td><b>${p.name}</b></td>
+      <td><b>${p.name}</b>${p.is_referrer==1?' <span title="介绍方（可拿提成）" style="font-size:13px">🤝</span>':''}</td>
       <td><span class="tag ${p.type==1?'tag-blue':p.type==2?'tag-green':'tag-orange'}">${TYPE[p.type]||'-'}</span></td>
       <td>${p.contact||'-'}</td><td>${p.phone||'-'}</td>
       <td>${p.tax_no||'-'}</td><td>${p.address||'-'}</td>
@@ -1019,7 +1055,7 @@ async function loadPartners(){
     :'<tr><td colspan="7" class="empty-tip">暂无数据</td></tr>';
 }
 async function editPartner(id=null){
-  let p={code:'',name:'',type:1,contact:'',phone:'',address:'',tax_no:'',bank_name:'',bank_account:'',remark:''};
+  let p={code:'',name:'',type:1,contact:'',phone:'',address:'',tax_no:'',bank_name:'',bank_account:'',remark:'',is_referrer:0};
   if(id) p=await get('/partners').then(list=>list.find(x=>x.id==id)||p);
   // 新增时根据类型自动获取编码
   if(!id){
@@ -1049,6 +1085,11 @@ async function editPartner(id=null){
     <div class="form-row"><label>银行账号</label><input id="fp_ba" value="${p.bank_account||''}"></div>
     <div class="form-row"><label>地址</label><input id="fp_addr" value="${p.address||''}"></div>
     <div class="form-row"><label>备注</label><input id="fp_rem" value="${p.remark||''}"></div>
+    <div class="form-row"><label>🤝 介绍方</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;height:30px">
+        <input type="checkbox" id="fp_ref" ${p.is_referrer==1?'checked':''}>
+        <span style="font-size:13px">是介绍人 / 渠道（可登记提成）</span>
+      </label></div>
   </div>`,
   `<button class="btn" onclick="closeModal()">取消</button>
    <button class="btn btn-primary" onclick="savePartner(${id||'null'})">保存</button>`);
@@ -1065,6 +1106,7 @@ async function savePartner(id){
     bank_account:document.getElementById('fp_ba').value,
     address:document.getElementById('fp_addr').value,
     remark:document.getElementById('fp_rem').value,
+    is_referrer:document.getElementById('fp_ref')?.checked?1:0,
     status:1
   };
   try{
@@ -1264,7 +1306,7 @@ function newPurchaseOrder(){
   </div>
   <div style="font-weight:600;margin-bottom:8px">商品明细</div>
   <table class="detail-table" id="po_items_table">
-    <thead><tr><th>商品*</th><th>规格</th><th>型号</th><th>单位</th><th width="80">数量*</th><th width="100">含税单价*</th><th width="60">税率%</th><th width="90">金额</th><th width="40">删</th></tr></thead>
+    <thead><tr><th>商品*</th><th style="position:relative">规格<span class="col-resizer" onmousedown="startColResize(event,'poi_spec','po_spec_th')" style="position:absolute;right:-3px;top:0;width:8px;height:100%;cursor:col-resize;z-index:2;background:rgba(0,0,0,0.04)"></span></th><th style="position:relative">型号<span class="col-resizer" onmousedown="startColResize(event,'poi_model','po_model_th')" style="position:absolute;right:-3px;top:0;width:8px;height:100%;cursor:col-resize;z-index:2;background:rgba(0,0,0,0.04)"></span></th><th>单位</th><th width="80">数量*</th><th width="100">含税单价*</th><th width="60">税率%</th><th width="90">金额</th><th width="40">删</th></tr></thead>
     <tbody id="po_items_body"></tbody>
   </table>
   <button class="btn add-item-btn" onclick="addPOItem()">➕ 添加商品</button>
@@ -1274,6 +1316,7 @@ function newPurchaseOrder(){
   `<button class="btn" onclick="closeModal()">取消</button>
    <button class="btn btn-primary" onclick="savePurchaseOrder()">保存草稿</button>`);
   addPOItem();
+  initColWidth();
 }
 function togglePOInvType(){
   const need=document.getElementById('po_inv_yes')?.checked;
@@ -1281,6 +1324,37 @@ function togglePOInvType(){
   if(sel) sel.style.display=need?'inline-block':'none';
 }
 
+// 商品明细列宽拖拽（规格列），宽度自动记忆到 localStorage
+function applyColWidth(inputPrefix, thId, w){
+  try{ localStorage.setItem('wms_'+inputPrefix+'_w', String(w)); }catch(e){}
+  document.querySelectorAll('[id^="'+inputPrefix+'_"]').forEach(el=>{ el.style.width=w+'px'; });
+  const th=document.getElementById(thId); if(th) th.style.width=w+'px';
+}
+let _colResize=null;
+function startColResize(e, inputPrefix, thId){
+  e.preventDefault();
+  const startX=e.clientX;
+  const cur=parseInt(localStorage.getItem('wms_'+inputPrefix+'_w')||'70',10);
+  _colResize={startX,cur,inputPrefix,thId};
+  document.addEventListener('mousemove',_onColResize);
+  document.addEventListener('mouseup',_endColResize);
+}
+function _onColResize(e){
+  if(!_colResize) return;
+  let w=Math.max(40,_colResize.cur+(e.clientX-_colResize.startX));
+  applyColWidth(_colResize.inputPrefix,_colResize.thId,w);
+}
+function _endColResize(){
+  _colResize=null;
+  document.removeEventListener('mousemove',_onColResize);
+  document.removeEventListener('mouseup',_endColResize);
+}
+function initColWidth(){
+  applyColWidth('poi_spec','po_spec_th', parseInt(localStorage.getItem('wms_poi_spec_w')||'70',10));
+  applyColWidth('poi_model','po_model_th', parseInt(localStorage.getItem('wms_poi_model_w')||'70',10));
+  applyColWidth('soi_spec','so_spec_th', parseInt(localStorage.getItem('wms_soi_spec_w')||'70',10));
+  applyColWidth('soi_model','so_model_th', parseInt(localStorage.getItem('wms_soi_model_w')||'70',10));
+}
 let poItemIdx=0;
 function addPOItem(){
   poItemIdx++;
@@ -1289,8 +1363,8 @@ function addPOItem(){
   tr.id=`poi_${idx}`;
   tr.innerHTML=`
     <td><select id="poi_g_${idx}" onchange="onPOGoodsChange(${idx})" style="width:160px"><option value="">请选择</option>${goodsOpts()}</select></td>
-    <td><input id="poi_spec_${idx}" style="width:70px" placeholder="规格"></td>
-    <td><input id="poi_model_${idx}" style="width:70px" placeholder="型号"></td>
+    <td><input id="poi_spec_${idx}" style="width:${localStorage.getItem('wms_poi_spec_w')||'70'}px" placeholder="规格"></td>
+    <td><input id="poi_model_${idx}" style="width:${localStorage.getItem('wms_poi_model_w')||'70'}px" placeholder="型号"></td>
     <td><input id="poi_unit_${idx}" style="width:50px" value="个"></td>
     <td><input type="number" id="poi_qty_${idx}" value="1" min="0" oninput="calcPOTotal()" style="width:70px"></td>
     <td><input type="number" id="poi_price_${idx}" value="0" min="0" oninput="calcPOTotal()" style="width:90px"></td>
@@ -1404,7 +1478,7 @@ async function pageSale(){
   </div>
   <div class="table-wrap"><table><thead><tr>
     <th>单据号</th><th>客户</th><th>项目</th><th>仓库</th><th>日期</th>
-    <th>含税金额</th><th>毛利</th><th>发票需求</th><th>状态</th><th>执行人</th><th>业务人员</th><th>操作</th>
+    <th>含税金额</th><th>毛利</th><th>🤝 提成</th><th>发票需求</th><th>状态</th><th>执行人</th><th>业务人员</th><th>操作</th>
   </tr></thead><tbody id="so-tbody"></tbody></table></div></div>`;
   loadSale();
 }
@@ -1422,6 +1496,10 @@ async function loadSale(){
       <td>${r.warehouse_name||'-'}</td><td>${fmtDate(r.order_date)}</td>
       <td>${fmtMoney(r.total_amount)}</td>
       <td style="color:${r.gross_profit>=0?'#52c41a':'#ff4d4f'}">${r.status==3?fmtMoney(r.gross_profit):'-'}</td>
+      <td>${r.commission_amount
+        ? `<span title="介绍方：${r.referrer_name||'-'}　税点 ${r.commission_tax_rate}%　实付 ${fmtMoney(r.commission_payable)}　已付 ${fmtMoney(r.commission_paid||0)}"
+             style="color:var(--danger);cursor:help">🤝 ${fmtMoney(r.commission_amount)}</span>`
+        : '<span style="color:#bbb">-</span>'}</td>
       <td>${r.invoice_need?`<span class="tag tag-orange" title="${r.invoice_type_req||''}">🧾 ${r.invoice_type_req||'需开票'}</span>`:'<span style="color:#bbb;font-size:12px">-</span>'}</td>
       <td>${statusBadge(r.status,SO_STATUS)}</td>
       <td>${r.operator||'-'}</td>
@@ -1432,7 +1510,7 @@ async function loadSale(){
         ${r.status==2?`<button class="btn-link btn-success" onclick="outstockSO(${r.id})">出库</button>`:''}
         ${r.status<3?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除？',()=>deleteSO(${r.id}))">删除</button>`:''}
       </td></tr>`).join('')
-    :'<tr><td colspan="12" class="empty-tip">暂无数据</td></tr>';
+    :'<tr><td colspan="13" class="empty-tip">暂无数据</td></tr>';
 }
 async function submitSO(id){try{await post('/sale/'+id+'/submit');toast('已提交');loadSale();}catch(e){toast(e.message,'error')}}
 async function approveSO(id){try{await post('/sale/'+id+'/approve');toast('审核通过');loadSale();}catch(e){toast(e.message,'error')}}
@@ -1452,6 +1530,10 @@ async function viewSale(id){
     <div><label style="color:#888">业务人员：</label>${d.business_person||'-'}</div>
     <div><label style="color:#888">手续费：</label>${d.fee?fmtMoney(d.fee):'-'}</div>
     <div><label style="color:#888">毛利：</label><span style="color:${d.gross_profit>=0?'#52c41a':'#ff4d4f'}">${fmtMoney(d.gross_profit)}</span></div>
+    <div><label style="color:#888">🤝 介绍方：</label>${d.referrer_name||'<span style="color:#bbb">无</span>'}</div>
+    <div><label style="color:#888">提成(税点)：</label>${d.commission_amount?`<b style="color:var(--danger)">${fmtMoney(d.commission_amount)}</b>（${d.commission_tax_rate}%）`:'<span style="color:#bbb">-</span>'}</div>
+    <div><label style="color:#888">代扣税：</label>${d.commission_amount?fmtMoney(d.commission_tax):'-'}</div>
+    <div><label style="color:#888">实付/已付：</label>${d.commission_amount?`${fmtMoney(d.commission_payable)} / <b style="color:var(--success)">${fmtMoney(d.commission_paid||0)}</b>`:'-'}</div>
     <div style="grid-column:span 3;border-top:1px solid #eee;padding-top:8px;margin-top:4px">
       <label style="color:#888">发票需求：</label>
       ${d.invoice_need
@@ -1474,7 +1556,70 @@ async function viewSale(id){
     <td><b style="color:var(--danger)">${fmtMoney(d.total_amount)}</b></td>
   </tr></tfoot></table>`,
   `<button class="btn" onclick="closeModal()">关闭</button>
+   <button class="btn" onclick="editSaleCommission(${id})">🤝 登记提成</button>
    <button class="btn btn-primary" onclick="printDoc('sale',${id})">🖨 打印</button>`);
+}
+
+// ══════════════════════════════════════
+// 销售单：登记/修改介绍方提成（出库前后都能改，改完自动重算毛利）
+// ══════════════════════════════════════
+async function editSaleCommission(id){
+  const d=await get('/sale/'+id);
+  showModal('登记 / 修改介绍方提成',`
+  <div class="form-grid">
+    <div class="form-row" style="grid-column:span 3"><label>🤝 介绍方*</label>
+      <select id="cm_ref"><option value="">请选择介绍方</option>${referrerOpts(d.referrer_id||0)}</select>
+      <div style="font-size:12px;color:#999;margin-top:4px">介绍方在「往来单位」里维护，勾选“是介绍方”后这里会带 🤝 标记。</div></div>
+    <div class="form-row"><label>提成总额(元)*</label>
+      <input id="cm_amt" type="number" step="0.01" min="0" value="${d.commission_amount||0}" oninput="calcCmTip()"></div>
+    <div class="form-row"><label>提成税点(%)</label>
+      <div style="display:flex;align-items:center;gap:4px">
+        <input id="cm_rate" type="number" step="0.01" min="0" max="100" value="${d.commission_tax_rate||0}" style="width:70px" oninput="calcCmTip()">
+        <button type="button" class="btn btn-sm" onclick="setCmRate(4)">4%</button>
+        <button type="button" class="btn btn-sm" onclick="setCmRate(5)">5%</button>
+        <button type="button" class="btn btn-sm" onclick="setCmRate(10)">10%</button>
+      </div></div>
+  </div>
+  <div id="cm_tip" style="margin:12px 0;padding:8px 12px;background:#fafafa;border:1px solid #f0f0f0;border-radius:6px;font-size:13px;color:#666"></div>
+  <div style="font-size:12px;color:#999;line-height:1.7">
+    本单已支付提成 <b>${fmtMoney(d.commission_paid||0)}</b>，应付实付 <b>${fmtMoney(d.commission_payable||0)}</b>。<br>
+    保存后：毛利按「不含税收入 − 成本 − 提成实付（扣点后）」重算，利润统计里这笔佣金会自动扣掉，不会虚高。
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveSaleCommission(${id})">保存</button>`);
+  calcCmTip();
+}
+function calcCmTip(){
+  const amt=parseFloat(document.getElementById('cm_amt')?.value)||0;
+  const rate=parseFloat(document.getElementById('cm_rate')?.value)||0;
+  const tip=document.getElementById('cm_tip');
+  if(!tip) return;
+  if(amt<=0){ tip.innerHTML='<span style="color:#bbb">提成填 0 表示清除本单提成</span>'; return; }
+  const tax=Math.round(amt*rate*100)/100;
+  const payable=Math.round((amt-tax)*100)/100;
+  tip.innerHTML=`谈定提成 <b style="color:var(--danger)">¥${amt.toFixed(2)}</b>　税点 <b>${rate}%</b>　`
+    +`代扣税 <b style="color:var(--warning)">¥${tax.toFixed(2)}</b>　实付介绍方 <b style="color:var(--success)">¥${payable.toFixed(2)}</b>`
+    +`<div style="margin-top:6px;color:#999;font-size:12px">计入本单成本（冲减毛利）的是扣点后实付 <b>¥${payable.toFixed(2)}</b>，代扣税由介绍方承担。</div>`;
+}
+function setCmRate(v){
+  const el=document.getElementById('cm_rate');
+  if(el){ el.value=v; calcCmTip(); }
+}
+async function saveSaleCommission(id){
+  const refId=+document.getElementById('cm_ref').value||0;
+  const amt=parseFloat(document.getElementById('cm_amt').value)||0;
+  const rate=parseFloat(document.getElementById('cm_rate').value)||0;
+  if(amt>0 && !refId){ toast('请先选择介绍方','error'); return; }
+  try{
+    await put('/sale/'+id+'/commission',{
+      referrer_id:refId, commission_amount:amt, commission_tax_rate:rate
+    });
+    toast('提成已保存，本单毛利已重算');
+    closeModal();
+    if(_curPage==='commission') nav('commission');
+    else if(_curPage==='sale') loadSale();
+    else nav(_curPage);
+  }catch(e){ toast(e.message,'error') }
 }
 
 function newSaleOrder(){
@@ -1493,6 +1638,17 @@ function newSaleOrder(){
     <div class="form-row"><label>业务人员</label><select id="so_bp">${userOpts()}</select></div>
     <div class="form-row"><label>备注</label><input id="so_rem"></div>
     <div class="form-row"><label>手续费(元)</label><input id="so_fee" type="number" step="0.01" min="0" placeholder="0.00" value="0"></div>
+    <div class="form-row"><label>🤝 介绍方</label>
+      <select id="so_ref"><option value="">无（非介绍成交）</option>${referrerOpts()}</select></div>
+    <div class="form-row"><label>提成总额(元)</label>
+      <input id="so_comm" type="number" step="0.01" min="0" placeholder="0.00" value="0" oninput="calcSOComm()"></div>
+    <div class="form-row"><label>提成税点(%)</label>
+      <div style="display:flex;align-items:center;gap:4px">
+        <input id="so_comm_rate" type="number" step="0.01" min="0" max="100" value="0" style="width:70px" oninput="calcSOComm()">
+        <button type="button" class="btn btn-sm" onclick="setCommRate(4)">4%</button>
+        <button type="button" class="btn btn-sm" onclick="setCommRate(5)">5%</button>
+        <button type="button" class="btn btn-sm" onclick="setCommRate(10)">10%</button>
+      </div></div>
     <div class="form-row">
       <label>🧾 发票</label>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -1512,6 +1668,7 @@ function newSaleOrder(){
       </div>
     </div>
   </div>
+  <div id="so_comm_tip" style="margin:10px 0;padding:8px 12px;background:#fafafa;border:1px solid #f0f0f0;border-radius:6px;font-size:13px;color:#666"><span style="color:#bbb">未登记提成（本单无介绍方佣金）</span></div>
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
     <span style="font-size:13px;color:#666">🔫 扫码录入：</span>
     <input id="so_barcode" placeholder="扫商品条码/编码自动添加明细" style="width:240px"
@@ -1520,7 +1677,7 @@ function newSaleOrder(){
   </div>
   <div style="font-weight:600;margin-bottom:8px">商品明细</div>
   <table class="detail-table">
-    <thead><tr><th>商品*</th><th>规格</th><th>型号</th><th>单位</th><th width="80">数量*</th><th width="100">含税售价*</th><th width="60">税率%</th><th width="90">金额</th><th width="40">删</th></tr></thead>
+    <thead><tr><th>商品*</th><th style="position:relative">规格<span class="col-resizer" onmousedown="startColResize(event,'soi_spec','so_spec_th')" style="position:absolute;right:-3px;top:0;width:8px;height:100%;cursor:col-resize;z-index:2;background:rgba(0,0,0,0.04)"></span></th><th style="position:relative">型号<span class="col-resizer" onmousedown="startColResize(event,'soi_model','so_model_th')" style="position:absolute;right:-3px;top:0;width:8px;height:100%;cursor:col-resize;z-index:2;background:rgba(0,0,0,0.04)"></span></th><th>单位</th><th width="80">数量*</th><th width="100">含税售价*</th><th width="60">税率%</th><th width="90">金额</th><th width="40">删</th></tr></thead>
     <tbody id="so_items_body"></tbody>
   </table>
   <button class="btn add-item-btn" onclick="addSOItem()">➕ 添加商品</button>
@@ -1530,6 +1687,7 @@ function newSaleOrder(){
   `<button class="btn" onclick="closeModal()">取消</button>
    <button class="btn btn-primary" onclick="saveSaleOrder()">保存草稿</button>`);
   addSOItem();
+  initColWidth();
 }
 function toggleSOInvType(){
   const need=document.getElementById('so_inv_yes')?.checked;
@@ -1545,8 +1703,8 @@ function addSOItem(){
   tr.id=`soi_${idx}`;
   tr.innerHTML=`
     <td><select id="soi_g_${idx}" onchange="onSOGoodsChange(${idx})" style="width:160px"><option value="">请选择</option>${goodsOpts()}</select></td>
-    <td><input id="soi_spec_${idx}" style="width:70px" placeholder="规格"></td>
-    <td><input id="soi_model_${idx}" style="width:70px" placeholder="型号"></td>
+    <td><input id="soi_spec_${idx}" style="width:${localStorage.getItem('wms_soi_spec_w')||'70'}px" placeholder="规格"></td>
+    <td><input id="soi_model_${idx}" style="width:${localStorage.getItem('wms_soi_model_w')||'70'}px" placeholder="型号"></td>
     <td><input id="soi_unit_${idx}" style="width:50px" value="个"></td>
     <td><input type="number" id="soi_qty_${idx}" value="1" min="0" oninput="calcSOTotal()" style="width:70px"></td>
     <td><input type="number" id="soi_price_${idx}" value="0" min="0" oninput="calcSOTotal()" style="width:90px"></td>
@@ -1632,6 +1790,9 @@ async function saveSaleOrder(){
       invoice_need:invNeed,
       invoice_type_req:invTypeReq,
       fee: parseFloat(document.getElementById('so_fee')?.value)||0,
+      referrer_id: +document.getElementById('so_ref')?.value||0,
+      commission_amount: parseFloat(document.getElementById('so_comm')?.value)||0,
+      commission_tax_rate: parseFloat(document.getElementById('so_comm_rate')?.value)||0,
       items
     });
     toast(`销售单 ${r.order_no} 已保存`); closeModal(); loadSale();
@@ -1839,6 +2000,7 @@ async function pageLogs(){
       <option value="sale">销售出库</option>
       <option value="requisition">耗材领用</option>
       <option value="check">库存盘点</option>
+      <option value="opening">期初建账</option>
     </select>
     <input type="date" id="log_df" style="width:130px">
     <input type="date" id="log_dt" style="width:130px">
@@ -1850,7 +2012,7 @@ async function pageLogs(){
   </tr></thead><tbody id="log-tbody"></tbody></table></div></div>`;
   loadLogs();
 }
-const BIZ_TYPE={purchase:'采购入库',sale:'销售出库',requisition:'耗材领用',check:'库存盘点',adjust:'手工调整'};
+const BIZ_TYPE={purchase:'采购入库',sale:'销售出库',requisition:'耗材领用',check:'库存盘点',adjust:'手工调整',opening:'期初建账'};
 async function loadLogs(){
   const kw=document.getElementById('log_kw').value;
   const bt=document.getElementById('log_type').value;
@@ -1890,6 +2052,19 @@ async function pageCheck(){
   loadChecks();
 }
 const CHECK_STATUS={0:'草稿',1:'盘点中',2:'已完成'};
+// 已保存过明细的盘点单（关闭时不再自动删除）
+const savedCheckIds=new Set();
+async function closeOrDeleteCheck(id){
+  if(savedCheckIds.has(id)){ closeModal(); return; }
+  confirm2('该盘点单尚未保存明细，关闭将删除此新建单据，确认？', async()=>{
+    try{ await del('/check/'+id); toast('已删除未保存的盘点单'); closeModal(); loadChecks(); }
+    catch(e){ toast(e.message,'error'); }
+  });
+}
+async function delCheck(id){
+  try{ await del('/check/'+id); toast('删除成功'); loadChecks(); }
+  catch(e){ toast(e.message,'error'); }
+}
 async function loadChecks(){
   const op=encodeURIComponent(document.getElementById('ck_op_f').value);
   const bp=encodeURIComponent(document.getElementById('ck_bp_f').value);
@@ -1903,6 +2078,7 @@ async function loadChecks(){
       <td>${r.business_person||'-'}</td>
       <td>
         <button class="btn-link" onclick="viewCheck(${r.id})">查看明细</button>
+        ${(r.status==0||r.status==1)?`<button class="btn-link" style="color:var(--danger)" onclick="confirm2('确认删除该盘点单？',()=>delCheck(${r.id}))">删除</button>`:''}
         ${(r.status==0||r.status==1)?`<button class="btn-link btn-success" onclick="confirmCheck(${r.id})">审核</button>`:''}
         ${r.status==2?`<button class="btn-link" onclick="doUnapprove('check',${r.id})">反审核</button><button class="btn-link" style="color:var(--danger)" onclick="doVoid('check',${r.id})">作废</button>`:''}
         ${r.status==3?`<button class="btn-link" onclick="doUnapprove('check',${r.id})">反审核</button>`:''}
@@ -1958,6 +2134,8 @@ async function viewCheck(id){
       <button class="btn" onclick="printDoc('check',${id})">🖨 打印</button>`
     :`<button class="btn" onclick="closeModal()">关闭</button>
       <button class="btn" onclick="printDoc('check',${id})">🖨 打印</button>
+      <button class="btn" onclick="closeOrDeleteCheck(${id})">关闭</button>
+      <button class="btn" onclick="printDoc('check',${id})">🖨 打印</button>
       <button class="btn btn-primary" onclick="saveCheckItems(${id})">保存数量</button>`);
 }
 function updateCheckDiff(iid,sysQty,costPrice){
@@ -1977,7 +2155,7 @@ async function saveCheckItems(checkId){
   });
   try{
     await put('/check/'+checkId+'/items',items);
-    toast('保存成功');
+    toast('保存成功'); savedCheckIds.add(checkId);
   }catch(e){toast(e.message,'error')}
 }
 async function confirmCheck(id){
@@ -3111,7 +3289,13 @@ function renderPendingOrders(payType, rows){
     '</tr>';
   });
   html+='</tbody></table>';
-  box.innerHTML=html;
+  const openingItems=rows.filter(r=>r.order_type==='opening');
+  let head='';
+  if(openingItems.length){
+    const tot=openingItems.reduce((s,r)=>s+(+r.remaining||0),0);
+    head='<div style="background:#fffbe6;border:1px solid #ffe58f;color:#ad6800;font-size:12px;padding:6px 10px;margin-bottom:6px;border-radius:4px">📒 该单位期初欠款（未结）：<b>'+fmtMoney(tot)+'</b>，可在下方勾选「期初欠款」直接核销</div>';
+  }
+  box.innerHTML=head+html;
   box.querySelectorAll('.fp_ord_sel').forEach(cb=>{
     cb.addEventListener('change',()=>{
       const tr=cb.closest('tr'); const wo=tr.querySelector('.fp_ord_wo');
@@ -3218,7 +3402,7 @@ async function viewPayment(id){
   <div style="margin-top:12px">
     <label style="color:#888;font-size:13px">核销单据（${pay.relations.length} 张）</label>
     <table class="tbl" style="font-size:12px;margin-top:6px"><thead><tr><th>单据号</th><th>类型</th><th>核销金额</th></tr></thead><tbody>
-      ${pay.relations.map(r=>`<tr><td>${r.order_no}</td><td>${r.order_type==='sale'?'销售单':'采购单'}</td><td>${fmtMoney(r.write_off_amount)}</td></tr>`).join('')}
+      ${pay.relations.map(r=>`<tr><td>${r.order_no}</td><td>${r.order_type==='sale'?'销售单':r.order_type==='opening'?'期初欠款':'采购单'}</td><td>${fmtMoney(r.write_off_amount)}</td></tr>`).join('')}
     </tbody></table>
   </div>`:''}`,
   `<button class="btn btn-primary" onclick="closeModal()">关闭</button>
@@ -3256,6 +3440,9 @@ async function pageReconciliation(){
     </div>
     <button class="btn btn-primary" onclick="genRecon()">➕ 生成对账单</button>
   </div>
+  <div class="card" style="margin-bottom:16px;background:#f6ffed;border:1px solid #b7eb8f">
+    <div id="opening-block"></div>
+  </div>
   <div class="table-wrap"><table><thead><tr>
     <th>对账单号</th><th>往来单位</th><th>类型</th><th>对账期间</th>
     <th>单据金额</th><th>已收付款</th><th>未结余额</th><th>状态</th><th>操作</th>
@@ -3286,7 +3473,27 @@ async function loadRecons(){
       ${r.audit_status===2?`<button class="btn-link" onclick="doUnapprove('recon',${r.id})">反审核</button>`:''}
     </td></tr>`).join('')
     :'<tr><td colspan="9" class="empty-tip">暂无对账数据</td></tr>';
+  await renderOpeningBlock(t,p);
 }
+
+// 对账管理：展示已应用的期初应收/应付余额（点击查询即按筛选汇总）
+async function renderOpeningBlock(t,p){
+  const box=document.getElementById('opening-block');
+  if(!box) return;
+  try{
+    const op=await get('/opening');
+    if(!op.applied){ box.innerHTML='<div style="color:#888;font-size:13px;padding:8px 0">尚未应用期初建账，暂无期初应收/应付余额。</div>'; return; }
+    let debt=(op.debt||[]).filter(d=>(t==='-1'||String(d.direction)===t) && (p==='-1'||String(d.partner_id)===p));
+    if(!debt.length){ box.innerHTML='<div style="color:#888;font-size:13px;padding:8px 0">所选条件下无期初应收/应付余额。</div>'; return; }
+    const sum=debt.reduce((s,d)=>s+(+d.balance||0),0);
+    box.innerHTML=`<div style="font-weight:600;color:#389e0d;margin-bottom:8px">📒 期初${t==='1'?'应收':t==='2'?'应付':'应收/应付'}余额（已应用，点击「查询」即按上方筛选汇总显示）</div>
+      <div class="table-wrap"><table><thead><tr><th>往来单位</th><th>方向</th><th>期初余额</th></tr></thead><tbody>
+      ${debt.map(d=>`<tr><td>${d.partner_name||'-'}</td><td>${d.direction===1?'<span class="tag tag-blue">应收</span>':'<span class="tag tag-orange">应付</span>'}</td><td><b style="color:var(--danger)">${fmtMoney(d.balance)}</b></td></tr>`).join('')}
+      </tbody><tfoot><tr><td colspan="2" style="text-align:right;font-weight:600">合计</td><td><b style="color:var(--danger)">${fmtMoney(sum)}</b></td></tr></tfoot></table></div>`;
+  }catch(e){ box.innerHTML='<div style="color:var(--danger);font-size:13px">期初余额加载失败：'+(e.message||'')+'</div>'; }
+}
+
+
 
 async function genRecon(){
   await loadCaches();
@@ -3660,6 +3867,492 @@ function periodSwitchTab(t){
   });
 }
 
+// ══════════════════════════════════════
+// 页面：介绍提成（财务板块）
+// 看得到：哪单、谁介绍、提成多少、税点多少、代扣多少、还欠多少
+// 付得掉：分次支付，扣银行账户余额并留流水
+// 利润不重复扣：提成在出库时已整额冲减毛利，这里只管资金
+// ══════════════════════════════════════
+const COMM_STATUS={0:'无提成',1:'待支付',2:'部分支付',3:'已付清'};
+async function pageCommission(){
+  const c=document.getElementById('content');
+  c.innerHTML=`<div class="stat-grid" id="cm-summary"></div>
+  <div class="card">
+  <div class="search-bar">
+    <input id="cm_kw" placeholder="单号/介绍方/客户" style="width:200px">
+    <select id="cm_st" style="width:120px">
+      <option value="-1">全部状态</option>
+      <option value="1">待支付</option>
+      <option value="2">部分支付</option>
+      <option value="3">已付清</option>
+    </select>
+    <label style="font-size:13px;color:#666">介绍方</label>
+    <select id="cm_ref_f" style="width:150px"><option value="-1">全部</option>${referrerOpts()}</select>
+    <button class="btn btn-primary" onclick="loadCommissions()">🔍 查询</button>
+    <button class="btn" onclick="viewCommissionPayments(-1)">📜 全部支付流水</button>
+  </div>
+  <div style="margin:-2px 0 10px;font-size:12px;color:#999;line-height:1.7">
+    成本口径：提成按<b>扣点后的实付金额</b>计入销售单成本冲减毛利（谈定 2000、税点 4% → 代扣 80、成本记 1920），
+    代扣税由介绍方承担，不计入公司成本。
+  </div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>销售单号</th><th>日期</th><th>客户</th><th>🤝 介绍方</th>
+    <th>提成总额</th><th>税点</th><th>代扣税</th><th>应付实付(=成本)</th>
+    <th>已付</th><th>未付</th><th>状态</th><th>操作</th>
+  </tr></thead><tbody id="cm-tbody"></tbody></table></div></div>`;
+  loadCommissionSummary();
+  loadCommissions();
+}
+async function loadCommissionSummary(){
+  try{
+    const s=await get('/commissions/summary');
+    document.getElementById('cm-summary').innerHTML=`
+      <div class="stat-card blue">
+        <div class="stat-label">提成总额（含税）</div>
+        <div class="stat-value">${fmtMoney(s.total_amount)}</div>
+        <div class="stat-sub">涉及 ${s.order_count} 张销售单</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="stat-label">代扣税额</div>
+        <div class="stat-value">${fmtMoney(s.total_tax)}</div>
+        <div class="stat-sub">按各单税点分别计算</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">已支付</div>
+        <div class="stat-value">${fmtMoney(s.total_paid)}</div>
+        <div class="stat-sub">应付实付合计 ${fmtMoney(s.total_payable)}</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-label">剩余未付</div>
+        <div class="stat-value" style="color:${s.unpaid>0?'#ff4d4f':'#52c41a'}">${fmtMoney(s.unpaid)}</div>
+        <div class="stat-sub">提成已计入成本，不影响利润</div>
+      </div>`;
+  }catch(e){}
+}
+async function loadCommissions(){
+  const kw=encodeURIComponent(document.getElementById('cm_kw').value||'');
+  const st=document.getElementById('cm_st').value;
+  const ref=document.getElementById('cm_ref_f').value;
+  const rows=await get('/commissions',`keyword=${kw}&pay_status=${st}&referrer_id=${ref}`);
+  document.getElementById('cm-tbody').innerHTML=rows.length
+    ?rows.map(r=>`<tr>
+      <td><button class="btn-link" onclick="viewSale(${r.id})">${r.order_no}</button></td>
+      <td>${fmtDate(r.order_date)}</td>
+      <td>${r.customer_name||'-'}</td>
+      <td><b>${r.referrer_name||'-'}</b></td>
+      <td><b style="color:var(--danger)">${fmtMoney(r.commission_amount)}</b></td>
+      <td>${r.commission_tax_rate}%</td>
+      <td style="color:var(--warning)">${fmtMoney(r.commission_tax)}</td>
+      <td>${fmtMoney(r.commission_payable)}</td>
+      <td style="color:var(--success)">${fmtMoney(r.commission_paid)}</td>
+      <td><b style="color:${r.unpaid>0.001?'var(--danger)':'#999'}">${fmtMoney(r.unpaid)}</b></td>
+      <td><span class="tag ${r.commission_status==3?'tag-green':r.commission_status==2?'tag-orange':'tag-blue'}">${COMM_STATUS[r.commission_status]||'-'}</span></td>
+      <td>
+        ${r.unpaid>0.001?`<button class="btn-link btn-success" onclick="payCommissionForm(${r.id})">💸 支付</button>`:'<span style="color:#bbb;font-size:12px">已结清</span>'}
+        <button class="btn-link" onclick="editSaleCommission(${r.id})">改提成</button>
+        <button class="btn-link" onclick="viewCommissionPayments(${r.id})">流水</button>
+      </td></tr>`).join('')
+    :'<tr><td colspan="12" class="empty-tip">还没有提成记录。开销售单时填「介绍方 + 提成 + 税点」，或在销售单详情里点「🤝 登记提成」补录。</td></tr>';
+}
+async function payCommissionForm(saleId){
+  const d=await get('/sale/'+saleId);
+  const unpaid=Math.round(((d.commission_payable||0)-(d.commission_paid||0))*100)/100;
+  if(unpaid<=0){ toast('该单提成已付清','error'); return; }
+  let banks=[];
+  try{ banks=await get('/bank_accounts'); }catch(e){ banks=[]; }
+  const today=new Date().toISOString().substring(0,10);
+  showModal('支付介绍方提成',`
+  <div class="form-grid">
+    <div class="form-row"><label>销售单号</label>
+      <input value="${d.order_no}" disabled style="background:#f5f5f5;color:#666"></div>
+    <div class="form-row"><label>🤝 介绍方</label>
+      <input value="${d.referrer_name||''}" disabled style="background:#f5f5f5;color:#666"></div>
+    <div class="form-row"><label>剩余未付(元)</label>
+      <input value="${unpaid.toFixed(2)}" disabled style="background:#f5f5f5;color:var(--danger);font-weight:600"></div>
+    <div class="form-row"><label>本次支付(元)*</label>
+      <input id="pc_amt" type="number" step="0.01" min="0" value="${unpaid.toFixed(2)}"></div>
+    <div class="form-row"><label>支付日期</label>
+      <input type="date" id="pc_date" value="${today}"></div>
+    <div class="form-row"><label>付款账户</label>
+      <select id="pc_bank"><option value="">不关联账户（现金/他人代付）</option>
+        ${banks.map(b=>`<option value="${b.id}">${b.name}（余额 ${fmtMoney(b.balance)}）</option>`).join('')}
+      </select></div>
+    <div class="form-row" style="grid-column:span 3"><label>备注</label>
+      <input id="pc_rem" placeholder="如：微信转账 / 现金 / 银行汇款"></div>
+  </div>
+  <div style="margin-top:10px;padding:8px 12px;background:#fafafa;border:1px solid #f0f0f0;border-radius:6px;font-size:12px;color:#999;line-height:1.7">
+    本次支付只做两件事：扣所选银行账户余额、登记一笔支付流水。<br>
+    提成在出库时已经整额冲减过毛利，这里不会再扣一次，利润统计不会重复。
+  </div>`,
+  `<button class="btn" onclick="closeModal()">取消</button>
+   <button class="btn btn-primary" onclick="saveCommissionPay(${saleId})">确认支付</button>`);
+}
+async function saveCommissionPay(saleId){
+  const amount=parseFloat(document.getElementById('pc_amt').value)||0;
+  if(amount<=0){ toast('支付金额必须大于 0','error'); return; }
+  try{
+    await post('/commissions/'+saleId+'/pay',{
+      amount,
+      pay_date:document.getElementById('pc_date').value,
+      bank_account_id:+document.getElementById('pc_bank').value||0,
+      remark:document.getElementById('pc_rem').value||''
+    });
+    toast('提成支付已登记'); closeModal(); nav('commission');
+  }catch(e){ toast(e.message,'error') }
+}
+async function viewCommissionPayments(saleId){
+  const rows=await get('/commission_payments','sale_id='+saleId);
+  showModal(saleId>0?'提成支付流水':'全部提成支付流水',`
+  <div class="table-wrap"><table><thead><tr>
+    <th>支付单号</th><th>日期</th><th>销售单号</th><th>介绍方</th>
+    <th>实付金额</th><th>其中代扣税</th><th>对应提成</th><th>付款账户</th><th>审核</th><th>操作</th>
+  </tr></thead><tbody>
+  ${rows.length?rows.map(r=>`<tr>
+    <td>${r.pay_no}</td><td>${fmtDate(r.pay_date)}</td>
+    <td>${r.sale_order_no||'-'}</td><td><b>${r.referrer_name||'-'}</b></td>
+    <td style="color:var(--success)"><b>${fmtMoney(r.amount)}</b></td>
+    <td style="color:var(--warning)">${fmtMoney(r.tax_amount)}</td>
+    <td>${fmtMoney(r.gross_amount)}</td>
+    <td>${r.bank_account_name||'-'}</td>
+    <td>${r.audit_status==1?'<span class="tag tag-green">已审核</span>':'<span class="tag tag-blue">未审核</span>'}</td>
+    <td>${r.audit_status==0
+      ? `<button class="btn-link" onclick="auditCommissionPay(${r.id},'approve')">审核</button>
+         <button class="btn-link" style="color:var(--danger)" onclick="voidCommissionPay(${r.id})">撤销</button>`
+      : `<button class="btn-link" onclick="auditCommissionPay(${r.id},'unapprove')">反审核</button>`}</td>
+  </tr>`).join(''):'<tr><td colspan="10" class="empty-tip">暂无支付流水</td></tr>'}
+  </tbody></table></div>
+  <div style="font-size:12px;color:#999;margin-top:8px">撤销会把金额退回到原账户、并把该单已付金额扣回去。</div>`,
+  `<button class="btn" onclick="closeModal()">关闭</button>`);
+}
+async function auditCommissionPay(pid,act){
+  try{
+    await post('/commission_payments/'+pid+'/'+act);
+    toast(act==='approve'?'已审核':'已反审核'); closeModal(); nav('commission');
+  }catch(e){ toast(e.message,'error') }
+}
+async function voidCommissionPay(pid){
+  try{
+    await post('/commission_payments/'+pid+'/void');
+    toast('已撤销，金额已退回账户'); closeModal(); nav('commission');
+  }catch(e){ toast(e.message,'error') }
+}
+
+// 页面：期初建账设置
+// ══════════════════════════════════════
+let _openingData = {inventory:[],debt:[],bank:[],cash:[],asset:[],applied:false};
+let _opTab = 'inv';
+// 未保存的草稿缓冲：切页签/切菜单时保留已录入但未保存的行，避免丢失
+let _opDraft = {inv:null, debt:null, bank:null, cash:null, asset:null};
+function opEsc(s){ return (s==null?'':(''+s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+async function pageOpening(){
+  await Promise.all([loadCaches(), loadBankAccounts()]);
+  const c=document.getElementById('content');
+  c.innerHTML = `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="card-title" style="margin:0">期初建账设置</span>
+        <span id="op-status"></span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="op-reset" onclick="resetOpening()">↺ 重置期初</button>
+        <button class="btn btn-primary" id="op-apply" onclick="applyOpening()">✅ 应用期初</button>
+      </div>
+    </div>
+    <div style="background:#f6ffed;border:1px solid #b7eb8f;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:13px;color:#389e0d;line-height:1.6">
+      录入开账前的<b>库存数量、应收/应付欠款、银行账户余额、现金/备用金、固定资产</b>，点击「应用期初」即作为后续核算起点。<br>
+      应用后不可修改（仅限未发生任何业务单据时可「重置」）。请分别在各页保存后再应用。
+    </div>
+    <div style="display:flex;gap:6px;border-bottom:1px solid #eee;margin-bottom:12px;flex-wrap:wrap">
+      <button class="op-tab-btn" id="op-tab-inv" onclick="switchOpTab('inv')">📦 库存期初</button>
+      <button class="op-tab-btn" id="op-tab-debt" onclick="switchOpTab('debt')">🤝 应收/应付欠款</button>
+      <button class="op-tab-btn" id="op-tab-bank" onclick="switchOpTab('bank')">🏦 银行账户</button>
+      <button class="op-tab-btn" id="op-tab-cash" onclick="switchOpTab('cash')">💵 现金/备用金</button>
+      <button class="op-tab-btn" id="op-tab-asset" onclick="switchOpTab('asset')">🏗️ 固定资产</button>
+    </div>
+    <div id="op-panel"></div>
+  </div>`;
+  await loadOpening();
+}
+async function loadOpening(){
+  try{
+    const d = await get('/opening');
+    _openingData = d || {inventory:[],debt:[],bank:[],cash:[],asset:[],applied:false};
+  }catch(e){ _openingData = {inventory:[],debt:[],bank:[],cash:[],asset:[],applied:false}; }
+  opStatusBadge();
+  switchOpTab(_opTab, true);
+}
+function opStatusBadge(){
+  const el=document.getElementById('op-status'); if(!el) return;
+  const a=document.getElementById('op-apply');
+  if(_openingData.applied){
+    el.innerHTML='<span class="tag tag-green">✓ 已应用</span>';
+    if(a){a.disabled=true;a.style.opacity=.5;}
+  }else{
+    el.innerHTML='<span class="tag tag-orange">未应用</span>';
+    if(a){a.disabled=false;a.style.opacity=1;}
+  }
+}
+// 从 DOM 采集某页签当前所有行（保存/草稿共用）
+function collectOpRows(tab){
+  const items=[];
+  const tb=document.getElementById('op-'+tab+'-tbody');
+  if(!tb) return items;
+  tb.querySelectorAll('tr').forEach(tr=>{
+    if(tab==='inv'){
+      const goods_id=+tr.querySelector('.op-inv-goods').value;
+      const warehouse_id=+tr.querySelector('.op-inv-wh').value;
+      const project_id=+(tr.querySelector('.op-inv-proj').value||0);
+      const qty=parseFloat(tr.querySelector('.op-inv-qty').value)||0;
+      const avg_cost=parseFloat(tr.querySelector('.op-inv-cost').value)||0;
+      let total=parseFloat(tr.querySelector('.op-inv-amt').value);
+      if(!total||total===0) total=Math.round(qty*avg_cost*100)/100;
+      const remark=tr.querySelector('.op-inv-remark').value;
+      if(goods_id&&warehouse_id) items.push({goods_id,warehouse_id,project_id,qty,avg_cost,total_cost:total,remark});
+    } else if(tab==='debt'){
+      const partner_id=+tr.querySelector('.op-debt-partner').value;
+      const direction=+tr.querySelector('.op-debt-dir').value;
+      const balance=parseFloat(tr.querySelector('.op-debt-bal').value)||0;
+      const remark=tr.querySelector('.op-debt-remark').value;
+      if(partner_id) items.push({partner_id,direction,balance,remark});
+    } else if(tab==='bank'){
+      const bank_account_id=+tr.querySelector('.op-bank-id').value;
+      const balance=parseFloat(tr.querySelector('.op-bank-bal').value)||0;
+      if(bank_account_id) items.push({bank_account_id,balance});
+    } else if(tab==='cash'){
+      const holder=tr.querySelector('.op-cash-holder').value.trim();
+      const balance=parseFloat(tr.querySelector('.op-cash-bal').value)||0;
+      const remark=tr.querySelector('.op-cash-remark').value;
+      if(holder) items.push({holder,balance,remark});
+    } else if(tab==='asset'){
+      const name=tr.querySelector('.op-asset-name').value.trim();
+      const category=tr.querySelector('.op-asset-cat').value.trim();
+      const spec=tr.querySelector('.op-asset-spec').value.trim();
+      const original_value=parseFloat(tr.querySelector('.op-asset-ov').value)||0;
+      const accum_depreciation=parseFloat(tr.querySelector('.op-asset-ad').value)||0;
+      const remark=tr.querySelector('.op-asset-remark').value;
+      if(name) items.push({name,category,spec,original_value,accum_depreciation,remark});
+    }
+  });
+  return items;
+}
+function switchOpTab(t, fromLoad){
+  // 用户主动切换页签时，先把当前页签已录入（未保存）的行存入草稿
+  if(!fromLoad && _opTab && _opTab!==t){
+    _opDraft[_opTab]=collectOpRows(_opTab);
+  }
+  _opTab=t;
+  ['inv','debt','bank','cash','asset'].forEach(k=>{
+    const b=document.getElementById('op-tab-'+k);
+    if(b){
+      const on=k===t;
+      b.style.color=on?'var(--primary)':'#666';
+      b.style.borderBottom=on?'2px solid var(--primary)':'none';
+      b.style.fontWeight=on?'600':'400';
+    }
+  });
+  const p=document.getElementById('op-panel');
+  if(p) p.innerHTML=renderOpPanel();
+}
+function renderOpPanel(){
+  if(_opTab==='inv') return renderOpInv();
+  if(_opTab==='debt') return renderOpDebt();
+  if(_opTab==='bank') return renderOpBank();
+  if(_opTab==='cash') return renderOpCash();
+  if(_opTab==='asset') return renderOpAsset();
+  return '';
+}
+function opInvRow(it){
+  return `<tr>
+    <td><select class="op-inv-goods">${_goods.map(g=>`<option value="${g.id}" ${it.goods_id==g.id?'selected':''}>${opEsc(g.name)}${g.spec?('('+opEsc(g.spec)+')'):''}</option>`).join('')}</select></td>
+    <td><select class="op-inv-wh">${_warehouses.map(w=>`<option value="${w.id}" ${it.warehouse_id==w.id?'selected':''}>${opEsc(w.name)}</option>`).join('')}</select></td>
+    <td><select class="op-inv-proj"><option value="0" ${!it.project_id?'selected':''}>（不指定）</option>${_projects.map(p=>`<option value="${p.id}" ${it.project_id==p.id?'selected':''}>${opEsc(p.name)}</option>`).join('')}</select></td>
+    <td><input class="op-inv-qty" type="number" step="0.01" value="${it.qty||''}" oninput="opCalcAmt(this)"></td>
+    <td><input class="op-inv-cost" type="number" step="0.01" value="${it.avg_cost||''}" oninput="opCalcAmt(this)"></td>
+    <td><input class="op-inv-amt" type="number" step="0.01" value="${it.total_cost||''}"></td>
+    <td><input class="op-inv-remark" value="${opEsc(it.remark||'')}"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td>
+  </tr>`;
+}
+function renderOpInv(){
+  const src = _opDraft.inv!==null ? _opDraft.inv : _openingData.inventory;
+  const rows = src.map(it=>opInvRow(it)).join('');
+  const dis = _openingData.applied?'disabled style="opacity:.5"':'';
+  return `<div class="table-wrap"><table><thead><tr>
+    <th>商品</th><th>仓库</th><th>项目</th><th>数量</th><th>单位成本</th><th>金额</th><th>备注</th><th></th>
+  </tr></thead><tbody id="op-inv-tbody">${rows}</tbody></table></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn" onclick="addOpRow('inv')" ${dis}>➕ 新增一行</button>
+    <button class="btn btn-primary" onclick="saveOpInv()" ${dis}>💾 保存库存期初</button>
+  </div>`;
+}
+function renderOpDebt(){
+  const src = _opDraft.debt!==null ? _opDraft.debt : _openingData.debt;
+  const rows = src.map(it=>`<tr>
+    <td><select class="op-debt-partner">${_partners.map(p=>`<option value="${p.id}" ${it.partner_id==p.id?'selected':''}>${opEsc(p.name)}</option>`).join('')}</select></td>
+    <td><select class="op-debt-dir"><option value="1" ${it.direction==1?'selected':''}>应收（客户欠我）</option><option value="2" ${it.direction==2?'selected':''}>应付（我欠供应商）</option></select></td>
+    <td><input class="op-debt-bal" type="number" step="0.01" value="${it.balance||''}"></td>
+    <td><input class="op-debt-remark" value="${opEsc(it.remark||'')}"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td>
+  </tr>`).join('');
+  const dis = _openingData.applied?'disabled style="opacity:.5"':'';
+  return `<div class="table-wrap"><table><thead><tr>
+    <th>往来单位</th><th>方向</th><th>期初余额</th><th>备注</th><th></th>
+  </tr></thead><tbody id="op-debt-tbody">${rows}</tbody></table></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn" onclick="addOpRow('debt')" ${dis}>➕ 新增一行</button>
+    <button class="btn btn-primary" onclick="saveOpDebt()" ${dis}>💾 保存应收/应付期初</button>
+  </div>`;
+}
+function renderOpBank(){
+  const banks = _bankAccounts.filter(b=>b.acct_type!==2);
+  const src = _opDraft.bank!==null ? _opDraft.bank : _openingData.bank;
+  const rows = src.map(it=>`<tr>
+    <td><select class="op-bank-id">${banks.map(b=>`<option value="${b.id}" ${it.bank_account_id==b.id?'selected':''}>${opEsc(b.name)}</option>`).join('')}</select></td>
+    <td><input class="op-bank-bal" type="number" step="0.01" value="${it.balance||''}"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td>
+  </tr>`).join('');
+  const dis = _openingData.applied?'disabled style="opacity:.5"':'';
+  return `<div class="table-wrap"><table><thead><tr>
+    <th>银行账户</th><th>期初余额</th><th></th>
+  </tr></thead><tbody id="op-bank-tbody">${rows}</tbody></table></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn" onclick="addOpRow('bank')" ${dis}>➕ 新增一行</button>
+    <button class="btn btn-primary" onclick="saveOpBank()" ${dis}>💾 保存银行账户期初</button>
+  </div>`;
+}
+function renderOpCash(){
+  const src = _opDraft.cash!==null ? _opDraft.cash : _openingData.cash;
+  const rows = src.map(it=>`<tr>
+    <td><input class="op-cash-holder" value="${opEsc(it.holder||'')}" placeholder="持有人/用途，如 备用金-王"></td>
+    <td><input class="op-cash-bal" type="number" step="0.01" value="${it.balance||''}"></td>
+    <td><input class="op-cash-remark" value="${opEsc(it.remark||'')}"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td>
+  </tr>`).join('');
+  const dis = _openingData.applied?'disabled style="opacity:.5"':'';
+  return `<div class="table-wrap"><table><thead><tr>
+    <th>持有人/用途</th><th>期初余额</th><th>备注</th><th></th>
+  </tr></thead><tbody id="op-cash-tbody">${rows}</tbody></table></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn" onclick="addOpRow('cash')" ${dis}>➕ 新增一行</button>
+    <button class="btn btn-primary" onclick="saveOpCash()" ${dis}>💾 保存现金/备用金期初</button>
+  </div>`;
+}
+function renderOpAsset(){
+  const src = _opDraft.asset!==null ? _opDraft.asset : _openingData.asset;
+  const rows = src.map(it=>`<tr>
+    <td><input class="op-asset-name" value="${opEsc(it.name||'')}"></td>
+    <td><input class="op-asset-cat" value="${opEsc(it.category||'')}" placeholder="如 设备/车辆"></td>
+    <td><input class="op-asset-spec" value="${opEsc(it.spec||'')}"></td>
+    <td><input class="op-asset-ov" type="number" step="0.01" value="${it.original_value||''}"></td>
+    <td><input class="op-asset-ad" type="number" step="0.01" value="${it.accum_depreciation||''}"></td>
+    <td><input class="op-asset-remark" value="${opEsc(it.remark||'')}"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td>
+  </tr>`).join('');
+  const dis = _openingData.applied?'disabled style="opacity:.5"':'';
+  return `<div class="table-wrap"><table><thead><tr>
+    <th>名称</th><th>类别</th><th>规格</th><th>原值</th><th>累计折旧</th><th>备注</th><th></th>
+  </tr></thead><tbody id="op-asset-tbody">${rows}</tbody></table></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn" onclick="addOpRow('asset')" ${dis}>➕ 新增一行</button>
+    <button class="btn btn-primary" onclick="saveOpAsset()" ${dis}>💾 保存固定资产期初</button>
+  </div>`;
+}
+function opEmptyRow(tab){
+  if(tab==='inv') return `<tr>
+    <td><select class="op-inv-goods">${_goods.map(g=>`<option value="${g.id}">${opEsc(g.name)}</option>`).join('')}</select></td>
+    <td><select class="op-inv-wh">${_warehouses.map(w=>`<option value="${w.id}">${opEsc(w.name)}</option>`).join('')}</select></td>
+    <td><select class="op-inv-proj"><option value="0">（不指定）</option>${_projects.map(p=>`<option value="${p.id}">${opEsc(p.name)}</option>`).join('')}</select></td>
+    <td><input class="op-inv-qty" type="number" step="0.01" value="0" oninput="opCalcAmt(this)"></td>
+    <td><input class="op-inv-cost" type="number" step="0.01" value="0" oninput="opCalcAmt(this)"></td>
+    <td><input class="op-inv-amt" type="number" step="0.01" value="0"></td>
+    <td><input class="op-inv-remark"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td></tr>`;
+  if(tab==='debt') return `<tr>
+    <td><select class="op-debt-partner">${_partners.map(p=>`<option value="${p.id}">${opEsc(p.name)}</option>`).join('')}</select></td>
+    <td><select class="op-debt-dir"><option value="1" selected>应收（客户欠我）</option><option value="2">应付（我欠供应商）</option></select></td>
+    <td><input class="op-debt-bal" type="number" step="0.01" value="0"></td>
+    <td><input class="op-debt-remark"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td></tr>`;
+  if(tab==='bank'){ const banks=_bankAccounts.filter(b=>b.acct_type!==2); return `<tr>
+    <td><select class="op-bank-id">${banks.map(b=>`<option value="${b.id}">${opEsc(b.name)}</option>`).join('')}</select></td>
+    <td><input class="op-bank-bal" type="number" step="0.01" value="0"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td></tr>`; }
+  if(tab==='cash') return `<tr>
+    <td><input class="op-cash-holder" placeholder="持有人/用途"></td>
+    <td><input class="op-cash-bal" type="number" step="0.01" value="0"></td>
+    <td><input class="op-cash-remark"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td></tr>`;
+  if(tab==='asset') return `<tr>
+    <td><input class="op-asset-name"></td><td><input class="op-asset-cat" placeholder="如 设备/车辆"></td>
+    <td><input class="op-asset-spec"></td>
+    <td><input class="op-asset-ov" type="number" step="0.01" value="0"></td>
+    <td><input class="op-asset-ad" type="number" step="0.01" value="0"></td>
+    <td><input class="op-asset-remark"></td>
+    <td><button class="btn-link" style="color:var(--danger)" onclick="removeRow(this)">✕</button></td></tr>`;
+  return '';
+}
+function addOpRow(tab){
+  const tb=document.getElementById('op-'+tab+'-tbody');
+  if(tb) tb.insertAdjacentHTML('beforeend', opEmptyRow(tab));
+}
+function removeRow(btn){ const tr=btn.closest('tr'); if(tr) tr.remove(); }
+function opCalcAmt(el){
+  const tr=el.closest('tr');
+  const q=parseFloat(tr.querySelector('.op-inv-qty').value)||0;
+  const c=parseFloat(tr.querySelector('.op-inv-cost').value)||0;
+  const amt=tr.querySelector('.op-inv-amt');
+  if(amt) amt.value=(q*c).toFixed(2);
+}
+async function saveOpInv(){
+  const items=collectOpRows('inv');
+  try{ await post('/opening/inventory',{items}); _opDraft.inv=null; toast('库存期初已保存'); await loadOpening(); }
+  catch(e){ toast(e.message,'error'); }
+}
+async function saveOpDebt(){
+  const items=collectOpRows('debt');
+  try{ await post('/opening/debt',{items}); _opDraft.debt=null; toast('应收/应付期初已保存'); await loadOpening(); }
+  catch(e){ toast(e.message,'error'); }
+}
+async function saveOpBank(){
+  const items=collectOpRows('bank');
+  try{ await post('/opening/bank',{items}); _opDraft.bank=null; toast('银行账户期初已保存'); await loadOpening(); }
+  catch(e){ toast(e.message,'error'); }
+}
+async function saveOpCash(){
+  const items=collectOpRows('cash');
+  try{ await post('/opening/cash',{items}); _opDraft.cash=null; toast('现金/备用金期初已保存'); await loadOpening(); }
+  catch(e){ toast(e.message,'error'); }
+}
+async function saveOpAsset(){
+  const items=collectOpRows('asset');
+  try{ await post('/opening/asset',{items}); _opDraft.asset=null; toast('固定资产期初已保存'); await loadOpening(); }
+  catch(e){ toast(e.message,'error'); }
+}
+async function applyOpening(){
+  confirm2('确认「应用期初」？将先保存各页签未保存的内容，再作为核算起点；应用后不可随意修改（需重置须未发生业务单据）。', async ()=>{
+    try{
+      if(_opTab) _opDraft[_opTab]=collectOpRows(_opTab); // 捕获当前页签
+      const tabs=['inv','debt','bank','cash','asset'];
+      const paths={inv:'/opening/inventory',debt:'/opening/debt',bank:'/opening/bank',cash:'/opening/cash',asset:'/opening/asset'};
+      for(const t of tabs){
+        if(_opDraft[t]!==null){
+          await post(paths[t],{items:_opDraft[t]});
+          _opDraft[t]=null;
+        }
+      }
+      const r=await post('/opening/apply',{});
+      toast(r&&r.msg?r.msg:'应用成功');
+      await loadOpening();
+    }catch(e){ toast(e.message,'error'); }
+  });
+}
+async function resetOpening(){
+  confirm2('确认重置期初？重置后需重新录入，且要求系统尚未发生任何业务单据。', ()=>{
+    post('/opening/reset',{}).then(r=>{ _opDraft={inv:null,debt:null,bank:null,cash:null,asset:null}; toast(r&&(r.warn||r.msg)?(r.warn||r.msg):'已重置'); loadOpening(); })
+      .catch(e=>toast(e.message,'error'));
+  });
+}
+
 const pages = {
   dashboard: pageDashboard,
   goods: pageGoods,
@@ -3681,6 +4374,7 @@ const pages = {
   reconciliation: pageReconciliation,
   expense: pageExpense,
   expense_report: pageExpenseReport,
+  commission: pageCommission,
   inv_in: pageInvIn,
   inv_out: pageInvOut,
   projects: pageProjects,
@@ -3688,6 +4382,7 @@ const pages = {
   system: pageSystem,
   users: pageUsers,
   period: pagePeriod,
+  opening: pageOpening,
   print_tpl: pagePrintTpl
 };
 

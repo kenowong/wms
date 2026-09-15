@@ -68,6 +68,7 @@ from routers_auth import router as auth_router
 from routers_auth import _tokens, get_allowed_modules
 from routers_print import router as print_router
 from routers_print import ensure_print_tables
+from routers_opening import router as opening_router
 # 建表并播种默认打印模板（需在打印路由导入之后）
 ensure_print_tables()
 
@@ -99,7 +100,11 @@ PATH_MODULE = {
     '/api/payments': 'payment',
     '/api/reconciliations': 'reconciliation',
     '/api/expenses': 'expense',
+    '/api/commissions': 'commission',
+    '/api/commission_payments': 'commission',
+    '/api/referrers': 'sale',   # 介绍方下拉：销售开单要用，归销售出库模块
     '/api/invoices': 'invoice',
+    '/api/opening': 'system',   # 期初建账：菜单归「系统设置」权限
     '/api/system': 'system',
     '/api/print': 'system',
 }
@@ -109,6 +114,7 @@ MOD_LABEL = {
     'requisition': '耗材领用', 'inventory': '库存台账', 'alert': '库存预警', 'logs': '库存流水',
     'check': '库存盘点', 'bank_accounts': '银行账户', 'payment': '收付款管理', 'reconciliation': '对账管理',
     'expense': '费用管理', 'invoice': '发票管理', 'projects': '项目台账', 'stats': '数据报表',
+    'commission': '介绍提成管理',
     'system': '系统设置',
 }
 
@@ -140,6 +146,7 @@ app.include_router(system_router, prefix="/api")
 app.include_router(period_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(print_router, prefix="/api")
+app.include_router(opening_router, prefix="/api")
 
 # 提供前端页面
 static_dir = resource_path("static")
@@ -153,7 +160,7 @@ def index():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.9.2", "host": WMS_HOST, "port": WMS_PORT}
+    return {"status": "ok", "version": "3.0.0", "host": WMS_HOST, "port": WMS_PORT}
 
 
 # ── PWA 资源（manifest / 图标）：供手机浏览器"添加到主屏幕"安装为 App ──
@@ -172,6 +179,14 @@ def pwa_icon(name: str):
     if not os.path.isfile(p):
         raise HTTPException(status_code=404, detail="icon not found")
     return FileResponse(p)
+
+
+# ── 手机端启动器（填写服务器地址后进入系统；可"添加到主屏幕"或作为封装 APK 入口）──
+@app.get("/launcher")
+@app.get("/launcher.html")
+def launcher():
+    return FileResponse(os.path.join(static_dir, "launcher.html"),
+                        media_type="text/html")
 
 
 # ═══════════════════════════════════════════════════════════

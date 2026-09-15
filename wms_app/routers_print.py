@@ -32,7 +32,7 @@ DOC_INFO = {
     'requisition': [('项目', '{{project_name}}'), ('仓库', '{{warehouse_name}}'), ('领用人', '{{applicant}}')],
     'check': [('仓库', '{{warehouse_name}}'), ('业务人员', '{{business_person}}')],
     'payment': [('银行', '{{bank_account_name}}'), ('手续费', '{{fee}}'), ('类型', '{{pay_type_label}}')],
-    'invoice': [('发票代码', '{{invoice_code}}'), ('发票类型', '{{invoice_type}}'), ('项目', '{{project_name}}'),
+    'invoice': [('发票号码', '{{invoice_no}}'), ('发票代码', '{{invoice_code}}'), ('发票类型', '{{invoice_type}}'), ('项目', '{{project_name}}'),
                 ('不含税金额', '{{untax_amount}}'), ('税额', '{{tax_amount}}'), ('状态', '{{status}}')],
     'expense': [('类别', '{{category}}'), ('付款账户', '{{pay_account_name}}'), ('业务人员', '{{business_person}}')],
     'reconciliation': [('类型', '{{recon_type_label}}'), ('期间', '{{period_start}} ~ {{period_end}}'),

@@ -251,6 +251,7 @@ class PartnerModel(BaseModel):
     bank_account: Optional[str] = ""
     status: Optional[int] = 1
     remark: Optional[str] = ""
+    is_referrer: Optional[int] = 0   # 1=介绍方（可登记提成）
 
 @router.get("/partners")
 def list_partners(keyword: str = "", type: int = -1):
@@ -276,9 +277,10 @@ def create_partner(p: PartnerModel):
         prefix_map = {1: "SP", 2: "CU", 3: "BP"}
         prefix = prefix_map.get(p.type, "BP")
         code = p.code.strip() if p.code and p.code.strip() else _gen_code(conn, prefix, "partners")
-        conn.execute("""INSERT INTO partners(code,name,type,contact,phone,address,tax_no,bank_name,bank_account,status,remark)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-            (code,p.name,p.type,p.contact,p.phone,p.address,p.tax_no,p.bank_name,p.bank_account,p.status,p.remark))
+        conn.execute("""INSERT INTO partners(code,name,type,contact,phone,address,tax_no,bank_name,bank_account,status,remark,is_referrer)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (code,p.name,p.type,p.contact,p.phone,p.address,p.tax_no,p.bank_name,p.bank_account,p.status,p.remark,
+             p.is_referrer or 0))
         conn.commit()
         return {"ok": True, "code": code}
     except Exception as e:
@@ -289,9 +291,10 @@ def create_partner(p: PartnerModel):
 @router.put("/partners/{pid}")
 def update_partner(pid: int, p: PartnerModel):
     conn = get_conn()
-    conn.execute("""UPDATE partners SET code=?,name=?,type=?,contact=?,phone=?,address=?,tax_no=?,bank_name=?,bank_account=?,status=?,remark=?
+    conn.execute("""UPDATE partners SET code=?,name=?,type=?,contact=?,phone=?,address=?,tax_no=?,bank_name=?,bank_account=?,status=?,remark=?,is_referrer=?
         WHERE id=?""",
-        (p.code,p.name,p.type,p.contact,p.phone,p.address,p.tax_no,p.bank_name,p.bank_account,p.status,p.remark,pid))
+        (p.code,p.name,p.type,p.contact,p.phone,p.address,p.tax_no,p.bank_name,p.bank_account,p.status,p.remark,
+         p.is_referrer or 0,pid))
     conn.commit()
     conn.close()
     return {"ok": True}

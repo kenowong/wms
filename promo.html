@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>进销存管理系统 · 功能介绍</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1080px; height:1920px; overflow:hidden; background:#070d18;
+    font-family:"Microsoft YaHei","PingFang SC","Hiragino Sans GB","Source Han Sans CN",sans-serif;
+    color:#eaf2ff; }
+  #stage { position:relative; width:1080px; height:1920px;
+    background:radial-gradient(1200px 800px at 50% -10%, #16335c 0%, #0a1424 55%, #070d18 100%); }
+
+  .scene { position:absolute; inset:0; padding:90px 80px;
+    display:flex; flex-direction:column; justify-content:center;
+    opacity:0; transform:translateY(40px) scale(.98); pointer-events:none;
+    transition:opacity .7s ease, transform .7s ease; }
+  .scene.active { opacity:1; transform:none; pointer-events:auto; }
+
+  .kicker { display:inline-block; align-self:flex-start; font-size:30px; letter-spacing:4px;
+    color:#5eead4; border:1px solid rgba(94,234,212,.4); border-radius:999px;
+    padding:10px 28px; margin-bottom:34px; background:rgba(94,234,212,.07); }
+  h1 { font-size:104px; line-height:1.12; font-weight:800; letter-spacing:2px;
+    background:linear-gradient(90deg,#fff,#9fd0ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  h2 { font-size:64px; font-weight:800; letter-spacing:2px; margin-bottom:14px; }
+  .sub { font-size:40px; color:#9fb6d4; line-height:1.5; margin-top:26px; }
+  .lead { font-size:46px; line-height:1.55; color:#dbe7ff; font-weight:600; }
+  .accent { color:#5eead4; }
+  .accent2 { color:#7cc4ff; }
+
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:26px; margin-top:46px; }
+  .card { background:linear-gradient(160deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+    border:1px solid rgba(124,196,255,.22); border-radius:26px; padding:34px 32px; }
+  .card .ico { font-size:54px; margin-bottom:14px; }
+  .card .t { font-size:38px; font-weight:700; margin-bottom:10px; }
+  .card .d { font-size:28px; color:#a8bdda; line-height:1.45; }
+
+  .list { margin-top:40px; display:flex; flex-direction:column; gap:24px; }
+  .row { display:flex; align-items:center; gap:26px; background:rgba(255,255,255,.05);
+    border-left:6px solid #5eead4; border-radius:16px; padding:26px 30px; }
+  .row .n { font-size:46px; font-weight:800; color:#5eead4; min-width:64px; }
+  .row .t { font-size:40px; font-weight:700; }
+  .row .d { font-size:28px; color:#a8bdda; }
+
+  .mock { margin-top:40px; background:rgba(8,18,34,.85); border:1px solid rgba(124,196,255,.25);
+    border-radius:22px; padding:28px 30px; }
+  .mock .bar { display:flex; gap:10px; margin-bottom:20px; }
+  .mock .dot { width:18px; height:18px; border-radius:50%; background:#33455f; }
+  .tbl { width:100%; border-collapse:collapse; font-size:27px; }
+  .tbl th { text-align:left; color:#7cc4ff; font-weight:600; padding:12px 14px; border-bottom:1px solid rgba(124,196,255,.25); }
+  .tbl td { padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.07); color:#dbe7ff; }
+  .tag { display:inline-block; font-size:24px; padding:4px 14px; border-radius:999px; }
+  .tag.ok { background:rgba(94,234,212,.16); color:#5eead4; }
+  .tag.wait { background:rgba(251,191,36,.16); color:#fbbf24; }
+
+  .flow { display:flex; align-items:center; gap:14px; margin-top:40px; flex-wrap:wrap; }
+  .pill { font-size:30px; padding:16px 26px; border-radius:14px; background:rgba(124,196,255,.12);
+    border:1px solid rgba(124,196,255,.3); }
+  .pill.arrow { background:none; border:none; color:#5eead4; font-size:40px; }
+
+  /* 发票识别演示 */
+  .ocr { display:flex; gap:30px; align-items:center; margin-top:44px; }
+  .receipt { width:330px; height:440px; border-radius:18px; background:#fdfdfb; color:#1f2a3a;
+    padding:26px 24px; font-size:24px; line-height:1.7; box-shadow:0 20px 60px rgba(0,0,0,.4);
+    position:relative; animation:scan 3.4s ease-in-out infinite; }
+  .receipt b { color:#0b3d91; }
+  .scanline { position:absolute; left:0; right:0; height:6px; background:#22d3a6;
+    box-shadow:0 0 18px #22d3a6; top:0; animation:line 3.4s ease-in-out infinite; }
+  @keyframes line { 0%,100%{top:8px;opacity:.2} 50%{top:410px;opacity:1} }
+  @keyframes scan { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+  .arrowBig { font-size:60px; color:#5eead4; }
+  .form { flex:1; background:rgba(8,18,34,.9); border:1px solid rgba(124,196,255,.3);
+    border-radius:18px; padding:24px 26px; font-size:28px; }
+  .form .fld { display:flex; justify-content:space-between; padding:14px 0; border-bottom:1px dashed rgba(255,255,255,.12); }
+  .form .fld span:last-child { color:#5eead4; font-weight:700; }
+
+  .endcta { margin-top:50px; display:flex; gap:20px; flex-wrap:wrap; }
+  .badge { font-size:32px; padding:18px 30px; border-radius:14px; border:1px solid rgba(94,234,212,.4);
+    background:rgba(94,234,212,.08); color:#d6fff5; }
+  .foot { position:absolute; bottom:54px; left:0; right:0; text-align:center; font-size:28px; color:#6f86a6; }
+  .big { font-size:120px; font-weight:800; color:#fff; margin:10px 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- 0 封面 -->
+  <section class="scene" data-i="0">
+    <span class="kicker">MIT 开源 · 数据私有</span>
+    <h1>进销存<br>管理系统</h1>
+    <div class="sub">离线自托管 · 采购库存销售财务 <span class="accent">一体化</span></div>
+    <div class="endcta">
+      <span class="badge">🖥 Windows 桌面</span>
+      <span class="badge">☁ NAS 私有云</span>
+      <span class="badge">📱 手机 App</span>
+    </div>
+    <div class="foot">一套系统，管住你的货、钱、票</div>
+  </section>
+
+  <!-- 1 定位 -->
+  <section class="scene" data-i="1">
+    <span class="kicker">它是什么</span>
+    <h2>一套<span class="accent">离线运行</span>的进销存系统</h2>
+    <p class="lead">打通 <span class="accent2">采购 → 库存 → 销售 → 财务</span> 全业务链路，<br>数据全部存在你自己的电脑 / 服务器，<br>不上传任何第三方。</p>
+    <div class="sub">适合小微商贸、批发零售、项目型团队自行管理业务。</div>
+  </section>
+
+  <!-- 2 痛点 -->
+  <section class="scene" data-i="2">
+    <span class="kicker">解决什么</span>
+    <h2>告别三类混乱</h2>
+    <div class="list">
+      <div class="row"><span class="n">01</span><div><div class="t">手工记账易错漏</div><div class="d">Excel 满天飞，进出货对不上账</div></div></div>
+      <div class="row"><span class="n">02</span><div><div class="t">发票录入太慢</div><div class="d">手动敲发票号、金额，一张几分钟</div></div></div>
+      <div class="row"><span class="n">03</span><div><div class="t">库存盘点不清</div><div class="d">不知道还剩多少、哪些快过期断货</div></div></div>
+    </div>
+  </section>
+
+  <!-- 3 核心能力 -->
+  <section class="scene" data-i="3">
+    <span class="kicker">核心能力</span>
+    <h2>六个关键点</h2>
+    <div class="cards">
+      <div class="card"><div class="ico">🔄</div><div class="t">业务一体化</div><div class="d">采购销售库存财务同一套数据</div></div>
+      <div class="card"><div class="ico">📦</div><div class="t">实时库存台账</div><div class="d">每一次出入库自动更新结余</div></div>
+      <div class="card"><div class="ico">🧾</div><div class="t">发票智能识别</div><div class="d">拍照 / PDF 自动提取发票信息</div></div>
+      <div class="card"><div class="ico">💰</div><div class="t">财务对账</div><div class="d">银行收付款与单据自动勾对</div></div>
+      <div class="card"><div class="ico">🔐</div><div class="t">权限分级</div><div class="d">管理员 / 操作员 / 查看员</div></div>
+      <div class="card"><div class="ico">📡</div><div class="t">多端可用</div><div class="d">桌面、私有云、手机随手查</div></div>
+    </div>
+  </section>
+
+  <!-- 4 基础档案 -->
+  <section class="scene" data-i="4">
+    <span class="kicker">模块 ①</span>
+    <h2>基础档案</h2>
+    <p class="sub">商品、规格型号、分类、品牌、往来单位、仓库，一次建档长期使用。</p>
+    <div class="mock">
+      <div class="bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <table class="tbl">
+        <tr><th>商品名称</th><th>规格</th><th>分类</th><th>库存</th></tr>
+        <tr><td>A4 复印纸</td><td>70g/箱</td><td>办公耗材</td><td>128</td></tr>
+        <tr><td>蓝牙耳机</td><td>X200</td><td>数码</td><td>42</td></tr>
+        <tr><td>不锈钢螺栓</td><td>M8×30</td><td>五金</td><td>960</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 5 采购销售 -->
+  <section class="scene" data-i="5">
+    <span class="kicker">模块 ②</span>
+    <h2>采购与销售</h2>
+    <p class="sub">采购入库单、销售出库单，单据带状态流转，可审核、可作废。</p>
+    <div class="mock">
+      <div class="bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <table class="tbl">
+        <tr><th>单号</th><th>类型</th><th>往来单位</th><th>状态</th></tr>
+        <tr><td>CG-20260801</td><td>采购入库</td><td>恒通商贸</td><td><span class="tag ok">已审核</span></td></tr>
+        <tr><td>XS-20260802</td><td>销售出库</td><td>远景科技</td><td><span class="tag wait">草稿</span></td></tr>
+      </table>
+    </div>
+    <div class="flow">
+      <span class="pill">草稿</span><span class="pill arrow">→</span>
+      <span class="pill">已审核</span><span class="pill arrow">→</span>
+      <span class="pill">完成 / 作废</span>
+    </div>
+  </section>
+
+  <!-- 6 库存 -->
+  <section class="scene" data-i="6">
+    <span class="kicker">模块 ③</span>
+    <h2>库存管理</h2>
+    <div class="cards">
+      <div class="card"><div class="ico">📒</div><div class="t">库存台账</div><div class="d">每个商品实时结余一目了然</div></div>
+      <div class="card"><div class="ico">🔍</div><div class="t">库存盘点</div><div class="d">盘点单与账面自动比对差异</div></div>
+      <div class="card"><div class="ico">⚠️</div><div class="t">库存预警</div><div class="d">低于阈值自动提醒补货</div></div>
+      <div class="card"><div class="ico">🧭</div><div class="t">库存流水</div><div class="d">每笔出入库可追溯</div></div>
+    </div>
+  </section>
+
+  <!-- 7 财务 -->
+  <section class="scene" data-i="7">
+    <span class="kicker">模块 ④</span>
+    <h2>财务管理</h2>
+    <p class="sub">管理银行账户、收付款记录，并与业务单据对账，钱货票同源。</p>
+    <div class="cards">
+      <div class="card"><div class="ico">🏦</div><div class="t">银行账户</div><div class="d">多账户余额统一管理</div></div>
+      <div class="card"><div class="ico">💸</div><div class="t">收付款</div><div class="d">应收应付逐笔登记</div></div>
+      <div class="card"><div class="ico">✅</div><div class="t">对账管理</div><div class="d">单据与资金自动勾对</div></div>
+    </div>
+  </section>
+
+  <!-- 8 发票识别 -->
+  <section class="scene" data-i="8">
+    <span class="kicker">模块 ⑤ · 亮点</span>
+    <h2>发票智能识别</h2>
+    <p class="sub">上传发票<span class="accent">图片或 PDF</span>，自动提取信息并回填表单。</p>
+    <div class="ocr">
+      <div class="receipt">
+        <div class="scanline"></div>
+        <b>增值税电子普通发票</b><br>
+        发票代码：011002300411<br>
+        发票号码：12345678<br>
+        开票日期：2024-01-15<br>
+        价税合计：683.00<br>
+        税额：78.38
+      </div>
+      <div class="arrowBig">➜</div>
+      <div class="form">
+        <div class="fld"><span>发票代码</span><span>011002300411</span></div>
+        <div class="fld"><span>发票号码</span><span>12345678</span></div>
+        <div class="fld"><span>开票日期</span><span>2024-01-15</span></div>
+        <div class="fld"><span>金额(价税)</span><span>683.00</span></div>
+        <div class="fld"><span>税额</span><span>78.38</span></div>
+      </div>
+    </div>
+    <div class="sub">识别方式：发票二维码优先 + 中文 OCR 兜底，<span class="accent">离线可用</span>。</div>
+  </section>
+
+  <!-- 9 项目报表 -->
+  <section class="scene" data-i="9">
+    <span class="kicker">模块 ⑥</span>
+    <h2>项目与报表</h2>
+    <div class="cards">
+      <div class="card"><div class="ico">📊</div><div class="t">项目台账</div><div class="d">任务阶段管理 + 甘特图可视化</div></div>
+      <div class="card"><div class="ico">📈</div><div class="t">数据报表</div><div class="d">进销存、收支、利润多维统计</div></div>
+    </div>
+    <div class="sub">支持期末封账与结转，年底结账不头疼。</div>
+  </section>
+
+  <!-- 10 权限多端 -->
+  <section class="scene" data-i="10">
+    <span class="kicker">权限与部署</span>
+    <h2>谁都能用，各看各的</h2>
+    <div class="flow" style="margin-top:30px">
+      <span class="pill">👑 管理员</span>
+      <span class="pill">🧑‍💼 操作员</span>
+      <span class="pill">👁 查看员</span>
+    </div>
+    <div class="sub" style="margin-top:30px">三种部署，同一套代码：</div>
+    <div class="endcta">
+      <span class="badge">🖥 Windows 安装包</span>
+      <span class="badge">☁ NAS / Docker</span>
+      <span class="badge">📱 手机 App</span>
+    </div>
+  </section>
+
+  <!-- 11 结尾 -->
+  <section class="scene" data-i="11">
+    <span class="kicker">免费且开放</span>
+    <div class="big">开始使用</div>
+    <p class="lead">MIT 开源协议 · 代码与数据<span class="accent">完全归你</span></p>
+    <div class="endcta">
+      <span class="badge">🔗 Gitee 获取源码</span>
+      <span class="badge">💾 一键安装</span>
+      <span class="badge">🚀 离线运行</span>
+    </div>
+    <div class="foot">进销存管理系统 · 你的货、钱、票，自己说了算</div>
+  </section>
+
+</div>
+
+<script>
+  const scenes = document.querySelectorAll('.scene');
+  let idx = 0;
+  function show(i){
+    scenes.forEach(s=>s.classList.remove('active'));
+    scenes[i].classList.add('active');
+  }
+  show(0);
+  let _timer = setInterval(()=>{
+    idx++;
+    if (idx >= scenes.length) { clearInterval(_timer); return; }
+    show(idx);
+  }, 3800);
+</script>
+</body>
+</html>

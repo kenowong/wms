@@ -26,7 +26,10 @@ services:
     volumes:
       # 数据库持久化：容器内 /data 挂载到 CACHEDEV2（数据盘）
       - /share/CACHEDEV2_DATA/mydata/wms:/data
-
+      # 源码挂载：容器内 /app 直接指向 NAS 上的 wms_app 目录。
+      # 好处：改完源码只需 `docker compose restart wms`（几秒），不必再 --build 重建镜像。
+      # 注意：此挂载会遮蔽镜像内的 /app，若宿主机 wms_app 目录被清空容器会启动失败。
+      - ./wms_app:/app
     environment:
       WMS_HOST: "0.0.0.0"     # 必须 0.0.0.0，否则容器外无法访问
       WMS_PORT: "8899"

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1677ff">
+<title>进销存管理系统 · 连接</title>
+<style>
+  :root{
+    --brand:#1677ff; --bg:#f4f6fb; --card:#fff; --text:#1f2329; --muted:#8a909c;
+    --border:#e6e9f0;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    background:linear-gradient(160deg,#eaf1ff 0%,#f4f6fb 60%);
+    color:var(--text);
+    display:flex; align-items:center; justify-content:center;
+    padding:24px; padding-top:max(24px,env(safe-area-inset-top));
+    padding-bottom:max(24px,env(safe-area-inset-bottom));
+  }
+  .card{
+    width:100%; max-width:420px; background:var(--card);
+    border-radius:18px; padding:28px 22px;
+    box-shadow:0 12px 40px rgba(22,119,255,.12);
+  }
+  .logo{
+    width:64px;height:64px;border-radius:16px;margin:0 auto 14px;
+    background:linear-gradient(135deg,var(--brand),#3a8bff);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:30px;font-weight:700;
+  }
+  h1{font-size:19px;text-align:center;margin:0 0 4px;}
+  .sub{text-align:center;color:var(--muted);font-size:13px;margin:0 0 22px;}
+  label{display:block;font-size:13px;color:var(--muted);margin:0 0 8px;}
+  .row{display:flex;gap:10px;}
+  input{
+    flex:1; width:100%; padding:13px 14px; font-size:15px;
+    border:1.5px solid var(--border); border-radius:12px; outline:none;
+    background:#fbfcfe; color:var(--text);
+  }
+  input:focus{border-color:var(--brand); background:#fff;}
+  .btn{
+    margin-top:16px; width:100%; padding:14px; font-size:16px; font-weight:600;
+    color:#fff; background:var(--brand); border:none; border-radius:12px;
+    cursor:pointer; transition:.15s;
+  }
+  .btn:active{transform:scale(.99); background:#0e63e6;}
+  .btn.ghost{
+    background:transparent; color:var(--brand); border:1.5px solid var(--border);
+    margin-top:10px; font-weight:500;
+  }
+  .hint{
+    margin-top:18px; font-size:12px; color:var(--muted); line-height:1.7;
+    background:#f7f9fd; border-radius:10px; padding:12px 14px;
+  }
+  .hint b{color:#5a6473;}
+  .saved{
+    text-align:center; background:#eef6ff; border:1px solid #d4e6ff;
+    border-radius:12px; padding:14px; margin-bottom:8px; font-size:14px; word-break:break-all;
+  }
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#52c41a;margin-right:6px;vertical-align:middle;}
+  .err{color:#e0493e;font-size:12px;margin-top:8px;min-height:14px;}
+  .goto{color:var(--brand);font-size:13px;margin-top:14px;text-align:center;}
+</style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="logo">进</div>
+    <h1>进销存管理系统</h1>
+    <p class="sub">手机端 · 连接你的服务器</p>
+
+    <div id="savedBox" style="display:none">
+      <div class="saved"><span class="dot"></span>已保存：<span id="savedUrl"></span></div>
+      <button class="btn" id="enterBtn">进入系统</button>
+      <button class="btn ghost" id="changeBtn">更改服务器地址</button>
+    </div>
+
+    <div id="formBox">
+      <label for="url">服务器地址</label>
+      <input id="url" type="url" inputmode="url" autocapitalize="none" spellcheck="false"
+             placeholder="http://192.168.194.34:8899">
+      <div class="err" id="err"></div>
+      <button class="btn" id="saveBtn">保存并进入</button>
+    </div>
+
+    <div class="hint">
+      <b>怎么填？</b><br>
+      • 在家 / 同一 ZeroTier 网：填 <b>http://192.168.194.34:8899</b><br>
+      • 在外网：填你的<b>公网地址或域名</b>（需 NAS 已做端口映射）<br>
+      • 地址只需填到「:端口」，不用带 /api 等后缀<br>
+      • 地址仅存本机，下次自动连接，可随时「更改」
+    </div>
+  </div>
+
+<script>
+(function(){
+  var KEY='wms_server';
+  var savedBox=document.getElementById('savedBox');
+  var formBox=document.getElementById('formBox');
+  var urlInput=document.getElementById('url');
+  var errEl=document.getElementById('err');
+  var savedUrl=document.getElementById('savedUrl');
+
+  function normalize(u){
+    u=(u||'').trim();
+    if(!u) return '';
+    if(!/^https?:\/\//i.test(u)) u='http://'+u;
+    u=u.replace(/\/+$/,'');
+    return u;
+  }
+  function go(u){ window.location.href=u; }
+
+  var stored=localStorage.getItem(KEY);
+  if(stored){
+    savedUrl.textContent=stored;
+    savedBox.style.display='block';
+    formBox.style.display='none';
+    // 1.2s 后自动进入，给用户取消的机会
+    setTimeout(function(){
+      // 若用户未手动点击/更改，则跳转
+      if(savedBox.style.display!=='none') go(stored);
+    },1200);
+  }
+
+  document.getElementById('enterBtn').onclick=function(){ go(stored); };
+  document.getElementById('changeBtn').onclick=function(){
+    savedBox.style.display='none';
+    formBox.style.display='block';
+    urlInput.value=stored||'';
+    urlInput.focus();
+  };
+  document.getElementById('saveBtn').onclick=function(){
+    var u=normalize(urlInput.value);
+    if(!u){ errEl.textContent='请输入服务器地址'; return; }
+    errEl.textContent='';
+    localStorage.setItem(KEY,u);
+    go(u);
+  };
+  urlInput.addEventListener('keydown',function(e){ if(e.key==='Enter') document.getElementById('saveBtn').click(); });
+})();
+</script>
+</body>
+</html>

@@ -46,6 +46,9 @@ node_modules/
 wms_app/mobile/node_modules/
 wms_app/mobile/package-lock.json
 
+# ===== Android 封装工程（体积大，含 SDK jar，不入库） =====
+android-wms/
+
 # ===== 系统 / 编辑器 =====
 .vscode/
 .idea/
