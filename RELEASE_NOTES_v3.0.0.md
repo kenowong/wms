@@ -50,7 +50,7 @@
 
 ### Windows 桌面版
 
-下载 `进销存管理系统安装包_v3.0.0.exe` 直接安装即可。**数据库会自动升级**：新增提成相关字段与期初相关数据表，旧数据不受影响，历史单据的提成默认为 0。
+下载 `WMS_v3.0.0_Setup.exe` 直接安装即可。**数据库会自动升级**：新增提成相关字段与期初相关数据表，旧数据不受影响，历史单据的提成默认为 0。
 
 > 小提示：如果之前录过提成，本次升级后部分单据的毛利会有小幅变化（提成口径已统一为「扣点后实付计入成本」），属正常现象。
 
@@ -68,6 +68,7 @@ docker compose up -d --build
 
 ## 六、安装包说明
 
-- **下载地址**：GitHub Releases → https://github.com/kenowong/wms/releases/tag/v3.0.0
+- **下载地址**：https://github.com/kenowong/wms/releases/download/v3.0.0/WMS_v3.0.0_Setup.exe
+  （发布页：https://github.com/kenowong/wms/releases/tag/v3.0.0）
 - 安装包内置 **Tesseract OCR 引擎（含中文词库）**，体积约 137MB。发票识别在**完全离线**环境下可用：优先解析发票二维码，无二维码时用中文 OCR 兜底。
 - 安装不需要管理员权限，可选择任意安装目录，安装完成自动创建桌面与开始菜单快捷方式。
