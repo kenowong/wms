@@ -58,6 +58,7 @@ body{font-family:'Microsoft YaHei',sans-serif;background:#f0f2f5;color:#333;font
 
 /* 统计卡片 */
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+.dash-duo{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .stat-card{background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08);position:relative;overflow:hidden}
 .stat-card::after{content:'';position:absolute;right:-10px;top:-10px;width:80px;height:80px;border-radius:50%;opacity:.08}
 .stat-card.blue::after{background:var(--primary)}
@@ -156,6 +157,7 @@ tr:hover td{background:#fafffe}
   .content{padding:12px}
   .card{padding:14px}
   .stat-grid{grid-template-columns:repeat(2,1fr)}
+  .dash-duo{grid-template-columns:1fr}
   .form-grid,.form-grid-2{grid-template-columns:repeat(2,1fr)}
   .search-bar{flex-wrap:wrap;gap:8px}
   .modal{min-width:0;width:94vw;max-width:94vw}
@@ -860,7 +862,7 @@ async function pageDashboard(){
       <div class="stat-sub">待开票 ${d.invoice_count} 单</div>
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div class="dash-duo">
     <div class="card">
       <div class="card-title">最近采购入库</div>
       <table><thead><tr><th>单据号</th><th>供应商</th><th>日期</th><th>金额</th></tr></thead>
