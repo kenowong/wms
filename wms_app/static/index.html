@@ -248,6 +248,9 @@ tr:hover td{background:#fafffe}
       <input id="login-pwd" type="password" placeholder="请输入密码" autocomplete="current-password"
              onkeydown="if(event.key==='Enter')doLogin()">
     </div>
+    <div style="margin:2px 0 12px;font-size:13px;color:#666">
+      <label style="cursor:pointer;user-select:none"><input type="checkbox" id="login-remember" checked style="vertical-align:middle;margin-right:6px">记住用户名</label>
+    </div>
     <button class="login-btn" onclick="doLogin()">登 录</button>
     <div class="login-err" id="login-err"></div>
   </div>
@@ -1302,9 +1305,10 @@ function newPurchaseOrder(){
   </div>
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
     <span style="font-size:13px;color:#666">🔫 扫码录入：</span>
-    <input id="po_barcode" placeholder="扫商品条码/编码自动添加明细" style="width:240px"
+    <input id="po_barcode" placeholder="扫商品条码/编码自动添加明细" style="width:200px"
       onkeydown="if(event.key==='Enter'){event.preventDefault();scanAddPOItem()}">
-    <span style="font-size:12px;color:#aaa">（支持扫码枪，扫完自动回车）</span>
+    <button type="button" onclick="nativeScan('po_barcode', scanAddPOItem)" style="margin-left:6px;padding:5px 10px;border:1px solid #1677ff;background:#fff;color:#1677ff;border-radius:6px;cursor:pointer;font-size:13px">📷 摄像</button>
+    <span style="font-size:12px;color:#aaa">（扫码枪或摄像头）</span>
   </div>
   <div style="font-weight:600;margin-bottom:8px">商品明细</div>
   <table class="detail-table" id="po_items_table">
@@ -1386,6 +1390,31 @@ function onPOGoodsChange(idx){
   calcPOTotal();
 }
 function removePOItem(idx){document.getElementById(`poi_${idx}`)?.remove();calcPOTotal();}
+// 调用原生摄像头扫码（Capacitor BarcodeScanner 桥；仅原生壳可用，WebView/桌面自动提示用扫码枪）
+async function nativeScan(inputId, onScanned){
+  const inp = document.getElementById(inputId);
+  if(!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BarcodeScanner)){
+    toast('当前环境不支持摄像头扫码，请使用扫码枪','error'); return;
+  }
+  const Scanner = window.Capacitor.Plugins.BarcodeScanner;
+  try{
+    if(Scanner.checkPermission){
+      const st = await Scanner.checkPermission({force:true});
+      const ok = st && (st.granted || st.hasPermission);
+      if(ok === false){ toast('请允许相机权限后重试','error'); return; }
+    }
+    const r = await Scanner.scan();
+    if(r && r.hasContent && r.content){
+      inp.value = r.content;
+      if(onScanned) onScanned();
+    }else{
+      toast('未识别到条码','error');
+    }
+  }catch(e){
+    toast('扫码已取消或失败','error');
+  }
+}
+
 async function scanAddPOItem(){
   const inp=document.getElementById('po_barcode');
   const code=(inp?.value||'').trim();
@@ -1673,9 +1702,10 @@ function newSaleOrder(){
   <div id="so_comm_tip" style="margin:10px 0;padding:8px 12px;background:#fafafa;border:1px solid #f0f0f0;border-radius:6px;font-size:13px;color:#666"><span style="color:#bbb">未登记提成（本单无介绍方佣金）</span></div>
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
     <span style="font-size:13px;color:#666">🔫 扫码录入：</span>
-    <input id="so_barcode" placeholder="扫商品条码/编码自动添加明细" style="width:240px"
+    <input id="so_barcode" placeholder="扫商品条码/编码自动添加明细" style="width:200px"
       onkeydown="if(event.key==='Enter'){event.preventDefault();scanAddSOItem()}">
-    <span style="font-size:12px;color:#aaa">（支持扫码枪，扫完自动回车）</span>
+    <button type="button" onclick="nativeScan('so_barcode', scanAddSOItem)" style="margin-left:6px;padding:5px 10px;border:1px solid #1677ff;background:#fff;color:#1677ff;border-radius:6px;cursor:pointer;font-size:13px">📷 摄像</button>
+    <span style="font-size:12px;color:#aaa">（扫码枪或摄像头）</span>
   </div>
   <div style="font-weight:600;margin-bottom:8px">商品明细</div>
   <table class="detail-table">
@@ -4394,9 +4424,14 @@ const pages = {
 function showLoginOverlay(errMsg=''){
   document.getElementById('login-overlay').classList.remove('hidden');
   document.getElementById('login-err').textContent = errMsg;
-  document.getElementById('login-user').value = '';
+  // 记住用户名：回填，不清空（密码始终清空，安全）
+  const uEl = document.getElementById('login-user');
+  const savedU = (function(){ try{ return localStorage.getItem('wms_username')||''; }catch(e){ return ''; } })();
+  if(uEl) uEl.value = savedU;
+  const rem = document.getElementById('login-remember');
+  if(rem) rem.checked = !!savedU;
   document.getElementById('login-pwd').value = '';
-  setTimeout(()=>document.getElementById('login-user').focus(), 100);
+  setTimeout(()=>{ if(savedU){ document.getElementById('login-pwd').focus(); } else { uEl.focus(); } }, 100);
 }
 
 function hideLoginOverlay(){
@@ -4422,6 +4457,12 @@ async function doLogin(){
     _session = {token: d.token, username: d.username, display_name: d.display_name, role: d.role, permissions: d.permissions||''};
     localStorage.setItem('wms_token', d.token);
     localStorage.setItem('wms_session', JSON.stringify(_session));
+    // 记住用户名（密码不记，安全）
+    try{
+      const rem = document.getElementById('login-remember');
+      if(rem && rem.checked){ localStorage.setItem('wms_username', username); }
+      else { localStorage.removeItem('wms_username'); }
+    }catch(e){}
     hideLoginOverlay();
     applySession();
     pageDashboard();

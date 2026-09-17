@@ -4,16 +4,19 @@
   "private": true,
   "description": "进销存管理系统 移动端（Capacitor 套壳，复用 wms_app/static 网页）",
   "scripts": {
+    "postinstall": "node scripts/patch-capacitor-jdk17.js",
     "sync": "cap sync",
     "open:android": "cap open android",
     "open:ios": "cap open ios"
   },
   "dependencies": {
-    "@capacitor/core": "^6.1.2",
-    "@capacitor/android": "^6.1.2",
-    "@capacitor/ios": "^6.1.2"
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@capacitor/barcode-scanner": "^2.2.6"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.1.2"
+    "@capacitor/cli": "^7.0.0",
+    "typescript": "^5.6.3"
   }
 }
